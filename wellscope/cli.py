@@ -45,6 +45,8 @@ def cmd_run(a) -> int:
             print(f"  {len(w):,} wells, {w['lat'].notna().mean():.0%} located", flush=True)
             notice(f"{prov} wells", f"{len(w):,} wells; located {w['lat'].notna().mean():.1%}; "
                                     f"status {w['status_group'].value_counts().to_dict()}; sample {w['uwi'].head(3).tolist()}")
+            other = w.loc[w["status_group"].eq("Other"), "status"].astype(str).value_counts().head(25).to_dict()
+            notice(f"{prov} unmapped statuses", f"{other}")
             wells.append(w)
         except Exception as e:  # keep going: one publisher's change should not sink the whole basin
             problems[f"{prov} wells"] = repr(e)
@@ -59,6 +61,9 @@ def cmd_run(a) -> int:
             notice(f"{prov} production", f"{len(p):,} entity-months; {p['entity_id'].nunique():,} entities; "
                                          f"well-level {p['entity_type'].eq('well').mean():.1%}; months {p['month'].min():%Y-%m} to "
                                          f"{p['month'].max():%Y-%m}; well ids matched to well list {matched}; sample {wl.head(3).tolist()}")
+            if matched is not None and matched < 0.98:
+                miss = wl[~wl.isin(set(wells[-1]["uwi"]))].drop_duplicates()
+                notice(f"{prov} unmatched well ids", f"{len(miss):,} ids, e.g. {miss.sample(min(15, len(miss)), random_state=1).tolist()}")
             prods.append(p)
         except Exception as e:
             problems[f"{prov} production"] = repr(e)
