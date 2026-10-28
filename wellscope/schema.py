@@ -8,8 +8,9 @@ import pandas as pd
 
 from . import locate
 
-WELL_COLS = ["uwi", "province", "well_name", "licensee", "status", "status_group", "status_date", "fluid",
-             "field", "formation", "spud_date", "total_depth_m", "horizontal", "lat", "lon", "loc_precision"]
+WELL_COLS = ["uwi", "province", "well_name", "licence", "licensee", "status", "status_text", "status_group", "status_date",
+             "fluid", "field", "formation", "spud_date", "total_depth_m", "horizontal", "lat", "lon", "loc_precision",
+             "bh_lat", "bh_lon"]
 PROD_COLS = ["entity_id", "entity_type", "province", "month", "operator", "facility_id", "location",
              "oil_m3", "gas_e3m3", "cond_m3", "water_m3", "hours"]
 
@@ -117,7 +118,10 @@ def finish_wells(df: pd.DataFrame, province: str) -> pd.DataFrame:
             df[c] = pd.NA
     df["uwi"] = df["uwi"].map(canon_uwi)
     df["status_group"] = df["status"].map(status_group)
+    df["status_text"] = df["status_text"].where(df["status_text"].notna(), df["status"])
     df["fluid"] = df["fluid"].map(fluid_group)
+    df["bh_lat"] = pd.to_numeric(df["bh_lat"], errors="coerce")
+    df["bh_lon"] = pd.to_numeric(df["bh_lon"], errors="coerce")
     df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
     df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
     df.loc[df["lat"].notna(), "loc_precision"] = df.loc[df["lat"].notna(), "loc_precision"].fillna("surveyed")

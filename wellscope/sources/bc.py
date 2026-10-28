@@ -32,6 +32,7 @@ def wells(cache: Path) -> pd.DataFrame:
     out = pd.DataFrame({
         "uwi": clean_str(df["UWI"]),
         "well_name": clean_str(_col(df, "Well Name")).str.replace(r"\s+", " ", regex=True),
+        "licence": clean_str(_col(df, "WA")).str.lstrip("0"),      # BC well authorization number
         "licensee": clean_str(_col(df, "Oper")),
         "status": clean_str(_col(df, "Mode")),
         "fluid": clean_str(_col(df, "Fluid")),

@@ -42,6 +42,7 @@ def wells(cache: Path) -> pd.DataFrame:
     out = pd.DataFrame({
         "uwi": df["UWI"].astype(str).str.replace(".", "/", regex=False),
         "well_name": clean_str(_col(df, "NAME")),
+        "licence": clean_str(_col(df, "LICENCE")),
         "licensee": clean_str(_col(df, "COMPANY")),
         "status": status,
         "status_date": pd.to_datetime(_col(df, "UWI STATUS DATE"), errors="coerce", format="mixed"),

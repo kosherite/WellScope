@@ -6,14 +6,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shutil
+import subprocess
 import sys
 import traceback
 from pathlib import Path
 
 import pandas as pd
 
-from . import analytics, fetch
+from . import analytics, fetch, mapdata
 from .config import SOURCES
 from .schema import WELL_COLS
 from .sources import ab, bc, mb, sk
@@ -82,20 +85,40 @@ def cmd_run(a) -> int:
         Path(a.parquet).mkdir(parents=True, exist_ok=True)
         W.to_parquet(Path(a.parquet) / "wells.parquet", index=False)
         P.to_parquet(Path(a.parquet) / "production.parquet", index=False)
-    print("\n== analytics", flush=True)
+    print("\n== map data", flush=True)
+    out = Path(a.out)
     try:
-        meta = analytics.build(W, P, Path(a.out), used)
+        meta = mapdata.build(W, P, out, used, Path(a.work))
+        tiles(Path(a.work), out)
     except Exception:
-        notice("Analytics FAILED", traceback.format_exc()[-2500:], "error")
+        notice("Map data FAILED", traceback.format_exc()[-2500:], "error")
         raise
     meta["problems"] = problems
-    (Path(a.out) / "meta.json").write_text(__import__("json").dumps(meta, default=str))
+    (out / "meta.json").write_text(json.dumps(meta, default=str))
     print(f"done: {meta['counts']}  problems: {list(problems) or 'none'}")
-    notice("WellScope build", f"counts={meta['counts']} latest={meta['latest']} backtest={meta['backtest']} "
-                              f"location_check={meta['location_check']}")
+    size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 1e6
+    notice("WellScope build", f"counts={meta['counts']} latest={meta['latest']} site_data_mb={size:.0f}")
+    if a.valuation:     # parked: the decline/PV screener, written beside the map data but not linked from the site
+        print("\n== valuation analytics (parked)", flush=True)
+        analytics.build(W, P, out / "valuation", used)
     for k, v in problems.items():
         notice(f"Problem: {k}", v, "warning")
     return 0 if not problems or a.allow_partial else 2
+
+
+def tiles(work: Path, out: Path) -> None:
+    """Turn the line-delimited GeoJSON into one PMTiles file with tippecanoe (skipped if it isn't installed)."""
+    exe = os.environ.get("TIPPECANOE") or shutil.which("tippecanoe")
+    if not exe:
+        print("  tippecanoe not found: wells.pmtiles not built (install it, or set TIPPECANOE)", flush=True)
+        return
+    cmd = [exe, "-o", str(out / "wells.pmtiles"), "--force", "-q", "-P", "-Z3", "-z12", "--drop-densest-as-needed",
+           "-n", "WellScope wells", "-A", "AER, Petrinex, BCER, Manitoba Petroleum Branch",
+           "-L", f"dots:{work / 'dots.geojsonl'}", "-L", f"wells:{work / 'wells.geojsonl'}",
+           "-L", f"laterals:{work / 'laterals.geojsonl'}"]
+    print("  " + " ".join(cmd), flush=True)
+    subprocess.run(cmd, check=True)
+    print(f"  wells.pmtiles {(out / 'wells.pmtiles').stat().st_size / 1e6:.1f} MB", flush=True)
 
 
 def cmd_probe(a) -> int:
@@ -139,6 +162,8 @@ def main(argv=None) -> int:
     r.add_argument("--cache", default="data/raw")
     r.add_argument("--out", default="site/data")
     r.add_argument("--parquet", default="data/build")
+    r.add_argument("--work", default="data/work", help="scratch folder for tile inputs")
+    r.add_argument("--valuation", action="store_true", help="also build the parked decline/PV screener data")
     r.add_argument("--allow-partial", action="store_true", help="exit 0 even if a province failed")
     r.set_defaults(fn=cmd_run)
     pr = sub.add_parser("probe", help="print each source's columns")

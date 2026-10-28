@@ -8,7 +8,7 @@ import pandas as pd
 
 from .. import fetch
 from ..config import SOURCES
-from ..schema import clean_str, finish_wells
+from ..schema import canon_uwi, clean_str, finish_wells
 from . import petrinex
 
 
@@ -37,17 +37,32 @@ def wells(cache: Path) -> pd.DataFrame:
             "Prod_String_UWI", "Well_Licence_Number", "Well_Name", "Licensee", "Field_Code", "Pool_Code",
             "Status_Fluid", "Status_Mode", "Status_Type", "Scheme_Type", "Licence_Status", "Licence_Status_Date",
             "Final_Total_Depth", "Max_True_Vertical_Depth", "Spud_Date"])
+        print("  reading ST37 bottom holes ...", flush=True)
+        try:
+            bh = _read(z, _find(z, "st37_bh"), ["Well_UWI", "BH_Latitude", "BH_Longitude"])
+        except FileNotFoundError:
+            bh = pd.DataFrame(columns=["Well_UWI", "BH_Latitude", "BH_Longitude"])
     for df in (sh, ps):
         df["lic"] = clean_str(df["Well_Licence_Number"]).str.lstrip("0")
     df = ps.merge(sh.drop(columns="Well_Licence_Number"), on="lic", how="left")
     td = pd.to_numeric(df["Final_Total_Depth"], errors="coerce")
     tvd = pd.to_numeric(df["Max_True_Vertical_Depth"], errors="coerce")
     mode, typ = clean_str(df["Status_Mode"]), clean_str(df["Status_Type"])
+    fluid = clean_str(df["Status_Fluid"])
+    text = (fluid.fillna("") + " " + mode.fillna("") + " " + typ.fillna("")).str.replace(r"\s+", " ", regex=True).str.strip()
+    # bottom holes are keyed by wellbore UWI; join on the wellbore root (no event sequence)
+    root = lambda s: s.map(canon_uwi).str.rsplit("/", n=1).str[0]  # noqa: E731
+    bh = bh.assign(_r=root(bh["Well_UWI"])).drop_duplicates("_r")
+    df = df.assign(_r=root(df["Prod_String_UWI"])).merge(bh[["_r", "BH_Latitude", "BH_Longitude"]], on="_r", how="left")
     out = pd.DataFrame({
         "uwi": df["Prod_String_UWI"],
         "well_name": clean_str(df["Well_Name"]),
+        "licence": clean_str(df["Well_Licence_Number"]).str.lstrip("0"),
         "licensee": clean_str(df["Licensee"]),
         "status": mode.where(mode.notna(), typ),
+        "status_text": text.where(text != "", pd.NA),
+        "bh_lat": df["BH_Latitude"],
+        "bh_lon": df["BH_Longitude"],
         "status_date": df["Licence_Status_Date"],
         "fluid": clean_str(df["Status_Fluid"]),
         "field": clean_str(df["Field_Code"]),

@@ -161,3 +161,23 @@ def test_build_without_well_lists(tmp_path):
     from wellscope.schema import WELL_COLS
     meta = analytics.build(pd.DataFrame(columns=WELL_COLS), P, tmp_path, {"AB": {"name": "Alberta", "pages": []}}, min_n=3)
     assert meta["counts"]["entities"] == 55 and meta["counts"]["wells"] == 0
+
+
+def test_mapdata_exports(tmp_path):
+    from wellscope import mapdata
+    W, P = synthetic()
+    W.loc[0, "bh_lat"], W.loc[0, "bh_lon"] = W.loc[0, "lat"] + 0.015, W.loc[0, "lon"]
+    W["licence"] = [str(1000 + i) for i in range(len(W))]
+    meta = mapdata.build(W, P, tmp_path / "site", {"AB": {"name": "Alberta", "pages": []}}, tmp_path / "work")
+    assert meta["counts"]["wells"] == 60 and meta["counts"]["producing"] == 55 and meta["counts"]["laterals"] == 1
+    first = json.loads((tmp_path / "work" / "wells.geojsonl").read_text().splitlines()[0])
+    assert set(first["properties"]) == {"u", "s", "o", "b"}
+    key = mapdata.shard_key(W.uwi.iloc[0])
+    assert key == "W5-060-12"
+    shard = json.loads((tmp_path / "site" / "twp" / f"{key}.json").read_text())
+    rec = shard["wells"][W.uwi.iloc[0]]
+    assert rec["d"] == "100/01-01-060-12W5/00" and rec["s"] == "oil" and len(rec["pr"][0]) == len(shard["months"])
+    lic = json.loads((tmp_path / "site" / "lic" / "00.json").read_text())
+    assert lic["1000"] == [["AB", W.uwi.iloc[0]]]
+    assert mapdata.symbol("Abandoned", "Other", False) == "dry" and mapdata.symbol("Inactive", "Gas", True) == "gas_susp"
+    assert mapdata.shard_key("00/D-080-H/092-G-03/0") == "N092G03"

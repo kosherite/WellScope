@@ -40,6 +40,9 @@ def wells(cache: Path) -> pd.DataFrame:
     out = pd.DataFrame({
         "uwi": uwi,
         "well_name": clean_str(_col(df, "WellName")),
+        "licence": clean_str(_col(df, "LicenceNumber")),
+        "status_text": (clean_str(_col(df, "WellStatusFluid")).fillna("") + " " + mode.fillna("") + " " + typ.fillna(""))
+        .str.replace(r"\s+", " ", regex=True).str.strip().replace("", pd.NA),
         "licensee": clean_str(_col(df, "LicenseeName")),
         "status": mode.where(mode.notna(), typ),
         "status_date": _col(df, "WellStatusDate"),

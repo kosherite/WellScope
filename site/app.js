@@ -1,487 +1,393 @@
-/* WellScope front end. Plain JS, no build step. Data comes from ./data/*.json written by the Python pipeline. */
+/* WellScope: every well in the WCSB on one map. MapLibre + PMTiles on static hosting; no server, no account. */
 "use strict";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const PROV = { AB: "Alberta", SK: "Saskatchewan", BC: "British Columbia", MB: "Manitoba" };
-const PCOL = { AB: "--sky-ink", SK: "--butter-ink", BC: "--mint-ink", MB: "--lilac-ink" };
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const PROV = { AB: "Alberta", SK: "Saskatchewan", BC: "British Columbia", MB: "Manitoba" };
+const SOURCE = { AB: "AER ST37 well list and Petrinex", SK: "Petrinex Saskatchewan public data", BC: "BC Energy Regulator", MB: "Manitoba Petroleum Branch" };
+const n = (v, d = 0) => v == null || !isFinite(v) ? "–" : Number(v).toLocaleString("en-CA", { maximumFractionDigits: d, minimumFractionDigits: d });
+const dark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
 
-const fmt = {
-  n(v, d = 0) { if (v == null || !isFinite(v)) return "–"; return Number(v).toLocaleString("en-CA", { maximumFractionDigits: d, minimumFractionDigits: d }); },
-  k(v) { if (v == null || !isFinite(v)) return "–"; const a = Math.abs(v); return a >= 1e6 ? (v / 1e6).toFixed(a >= 1e7 ? 1 : 2) + "M" : a >= 1e4 ? (v / 1e3).toFixed(1) + "k" : fmt.n(v); },
-  money(v) { if (v == null || !isFinite(v)) return "–"; const a = Math.abs(v); return (v < 0 ? "−" : "") + "$" + (a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(1) + "M" : a >= 1e3 ? (a / 1e3).toFixed(0) + "k" : a.toFixed(0)); },
-  decl(v) { if (v == null || !isFinite(v)) return "–"; return v < 0 ? "+" + fmt.n(-v, 1) + "% growth" : fmt.n(v, 1) + "%"; },
-  pv(pv) { if (!pv) return "–"; if (pv.nb <= 0) return "Uneconomic"; return fmt.money((pv.lo + pv.hi) / 2); },
-  pct(v, d = 0) { return v == null || !isFinite(v) ? "–" : fmt.n(v, d) + "%"; },
-  month(m) { if (!m) return "–"; const [y, mm] = m.split("-"); return new Date(+y, +mm - 1, 1).toLocaleString("en-CA", { month: "short", year: "numeric" }); },
-};
-
-// ------------------------------------------------------------------ data
+let META = null, OPS = [], map, selected = null, opFilter = null;
+const hidden = new Set();
 const cache = new Map();
-async function getJSON(path) {
-  if (!cache.has(path)) cache.set(path, fetch("data/" + path).then((r) => { if (!r.ok) throw new Error(path + " " + r.status); return r.json(); }));
-  return cache.get(path);
-}
-let META, BASIN, CELLS, OPS;
+const getJSON = (p) => { if (!cache.has(p)) cache.set(p, fetch("data/" + p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })); return cache.get(p); };
 
-// ------------------------------------------------------------------ price deck
-const DECK_FIELDS = [
-  ["wti_usd", "WTI (US$/bbl)", 1], ["oil_diff_usd", "Light oil differential to WTI (US$/bbl)", 0.5], ["fx_usdcad", "US$ per C$", 0.01],
-  ["aeco_cad_gj", "AECO gas (C$/GJ)", 0.05], ["royalty", "Royalty rate (0 to 1)", 0.01], ["opex_cad_boe", "Operating cost (C$/boe)", 0.5],
-  ["transport_cad_boe", "Transportation (C$/boe)", 0.25], ["discount", "Discount rate (0.10 = PV10)", 0.01],
-];
-let DECK = {};
-function loadDeck() {
-  DECK = { ...META.price_deck };
-  try { Object.assign(DECK, JSON.parse(localStorage.getItem("wellscope.deck") || "{}")); } catch (e) { /* storage unavailable */ }
+// ------------------------------------------------------------------ well symbols (drawn once, used on the map, legend and panel)
+const SYM = ["oil", "gas", "oil_susp", "gas_susp", "aband", "dry", "service", "pre", "other"];
+const SYM_COLOR = () => ({ oil: css("--oil"), gas: css("--gas"), oil_susp: css("--oil"), gas_susp: css("--gas"), aband: css("--aband"),
+  dry: css("--aband"), service: css("--svc"), pre: css("--pre"), other: css("--aband") });
+const ICONS = {};
+function drawIcon(kind, px = 48) {
+  const c = document.createElement("canvas"); c.width = c.height = px;
+  const g = c.getContext("2d"), m = px / 2, r = px * 0.25, col = SYM_COLOR()[kind], halo = dark() ? "#111" : "#fff";
+  g.lineCap = "round";
+  const circle = (fill, stroke, w = px * 0.07) => { g.beginPath(); g.arc(m, m, r, 0, Math.PI * 2); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.lineWidth = w; g.strokeStyle = stroke; g.stroke(); } };
+  const rays = (n, len) => { g.lineWidth = px * 0.07; g.strokeStyle = col; for (let i = 0; i < n; i++) { const a = i * Math.PI * 2 / n; g.beginPath(); g.moveTo(m + Math.cos(a) * r * 1.15, m + Math.sin(a) * r * 1.15); g.lineTo(m + Math.cos(a) * (r + len), m + Math.sin(a) * (r + len)); g.stroke(); } };
+  const cross = (ext) => { g.lineWidth = px * 0.07; g.strokeStyle = col; const k = r * ext; g.beginPath(); g.moveTo(m - k, m - k); g.lineTo(m + k, m + k); g.moveTo(m + k, m - k); g.lineTo(m - k, m + k); g.stroke(); };
+  switch (kind) {
+    case "oil": circle(col, halo, px * 0.05); break;
+    case "gas": rays(8, px * 0.13); circle(col, halo, px * 0.05); break;
+    case "oil_susp": circle(halo, col, px * 0.09); break;
+    case "gas_susp": rays(8, px * 0.13); circle(halo, col, px * 0.09); break;
+    case "aband": circle(halo, col); cross(0.72); break;
+    case "dry": rays(4, px * 0.14); circle(halo, col); cross(0.72); break;
+    case "service": g.beginPath(); g.moveTo(m, m - r * 1.25); g.lineTo(m + r * 1.15, m + r * 0.85); g.lineTo(m - r * 1.15, m + r * 0.85); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = px * 0.05; g.strokeStyle = halo; g.stroke(); break;
+    case "pre": circle(halo, col, px * 0.06); g.beginPath(); g.arc(m, m, r * 0.3, 0, Math.PI * 2); g.fillStyle = col; g.fill(); break;
+    default: g.beginPath(); g.arc(m, m, r * 0.6, 0, Math.PI * 2); g.fillStyle = col; g.fill();
+  }
+  ICONS[kind] = c.toDataURL();
+  return g.getImageData(0, 0, px, px);
 }
-function saveDeck() { try { localStorage.setItem("wellscope.deck", JSON.stringify(DECK)); } catch (e) { /* ignore */ } }
-const oilPrice = () => (DECK.wti_usd - DECK.oil_diff_usd) / DECK.fx_usdcad;                // C$/bbl
-const gasPerBoe = () => DECK.aeco_cad_gj * 1.055 * 6;                                        // C$ per boe of gas
-function netback(oilFrac) {
-  const rev = oilFrac * oilPrice() + (1 - oilFrac) * gasPerBoe();
-  return rev * (1 - DECK.royalty) - DECK.opex_cad_boe - DECK.transport_cad_boe;
+
+// ------------------------------------------------------------------ basemaps (Esri raster tiles; no API key needed)
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+const BASES = {
+  light: () => [ESRI + `Canvas/${dark() ? "World_Dark_Gray_Base" : "World_Light_Gray_Base"}/MapServer/tile/{z}/{y}/{x}`,
+                ESRI + `Canvas/${dark() ? "World_Dark_Gray_Reference" : "World_Light_Gray_Reference"}/MapServer/tile/{z}/{y}/{x}`],
+  sat: () => [ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}", ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"],
+  topo: () => [ESRI + "World_Topo_Map/MapServer/tile/{z}/{y}/{x}", null],
+};
+function baseStyle() {
+  const sources = {}, layers = [];
+  Object.entries(BASES).forEach(([k, f]) => {
+    const [base, ref] = f();
+    sources["b-" + k] = { type: "raster", tiles: [base], tileSize: 256, maxzoom: k === "light" ? 16 : 19, attribution: "Basemap &copy; Esri and its data providers" };
+    layers.push({ id: "b-" + k, type: "raster", source: "b-" + k, layout: { visibility: k === "light" ? "visible" : "none" } });
+    if (ref) { sources["r-" + k] = { type: "raster", tiles: [ref], tileSize: 256, maxzoom: 16 }; layers.push({ id: "r-" + k, type: "raster", source: "r-" + k, layout: { visibility: k === "light" ? "visible" : "none" } }); }
+  });
+  return { version: 8, glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf", sources, layers };
 }
-function arps(t, qi, di, b) { return qi / Math.pow(1 + b * di * t, 1 / b); }
-function forecast(fit, months) {           // fit = [b, di, q_now, t_now]
-  const [b, di, q, tn] = fit, qi = q * Math.pow(1 + b * di * tn, 1 / b), out = [];
-  let qt = null, m0 = 0;
-  for (let m = 1; m <= months; m++) {
-    const t = tn + m / 12;
-    if (qt == null && di / (1 + b * di * t) <= 0.06) { qt = arps(t, qi, di, b); m0 = m; }
-    out.push(qt != null ? qt * Math.exp(-0.06 * (m - m0) / 12) : arps(t, qi, di, b));
+let base = "light";
+function setBase(k) {
+  base = k;
+  Object.keys(BASES).forEach((b) => ["b-", "r-"].forEach((p) => map.getLayer(p + b) && map.setLayoutProperty(p + b, "visibility", b === k ? "visible" : "none")));
+  document.querySelectorAll("#basemaps button").forEach((x) => x.classList.toggle("on", x.dataset.b === k));
+  if (map.getLayer("grid-lines")) map.setPaintProperty("grid-lines", "line-color", k === "sat" ? "#ffffff" : css("--ink"));
+}
+
+// ------------------------------------------------------------------ map layers
+function colorBySymbol() {
+  const c = SYM_COLOR();
+  return ["match", ["get", "s"], ...SYM.flatMap((s) => [s, c[s]]), c.other];
+}
+function filterExpr(withOp = true) {
+  const parts = ["all"];
+  if (hidden.size) parts.push(["!", ["in", ["get", "s"], ["literal", [...hidden]]]]);
+  if (withOp && opFilter != null) parts.push(["==", ["get", "o"], opFilter.i]);
+  return parts.length > 1 ? parts : null;
+}
+function applyFilters() {
+  ["dots", "wells"].forEach((id) => map.setFilter(id, filterExpr()));
+  map.setFilter("laterals", filterExpr(false));
+}
+
+function addWellLayers() {
+  const url = "pmtiles://" + new URL("data/wells.pmtiles", location.href).href;
+  map.addSource("w", { type: "vector", url, attribution: "Wells: AER, Petrinex, BCER, Manitoba Petroleum Branch" });
+  SYM.forEach((s) => map.addImage(s, drawIcon(s), { pixelRatio: 2 }));
+  map.addLayer({ id: "laterals", type: "line", source: "w", "source-layer": "laterals", minzoom: 9.5,
+    paint: { "line-color": colorBySymbol(), "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 14, 2], "line-opacity": 0.75 } });
+  map.addLayer({ id: "dots", type: "circle", source: "w", "source-layer": "dots", maxzoom: 9,
+    paint: { "circle-color": colorBySymbol(), "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1, 6, 1.8, 9, 3.2],
+             "circle-opacity": ["match", ["get", "s"], ["aband", "dry", "other"], 0.35, 0.85] } });
+  map.addLayer({ id: "wells", type: "symbol", source: "w", "source-layer": "wells", minzoom: 9,
+    layout: { "icon-image": ["get", "s"], "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.55, 12, 0.85, 15, 1.15],
+              "icon-allow-overlap": true, "icon-ignore-placement": true,
+              "symbol-sort-key": ["match", ["get", "s"], ["oil", "gas"], 2, ["oil_susp", "gas_susp", "service"], 1, 0],
+              "text-field": ["step", ["zoom"], "", 14.5, ["get", "u"]], "text-font": ["Open Sans Regular"], "text-size": 10.5,
+              "text-offset": [0, 1.25], "text-anchor": "top", "text-optional": true },
+    paint: { "text-color": css("--ink-2"), "text-halo-color": dark() ? "#000" : "#fff", "text-halo-width": 1.4 } });
+  map.addLayer({ id: "sel", type: "circle", source: "w", "source-layer": "wells", minzoom: 9, filter: ["==", ["get", "u"], ""],
+    paint: { "circle-radius": 13, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": css("--accent"), "circle-stroke-width": 3 } });
+
+  map.on("click", "dots", (e) => map.flyTo({ center: e.lngLat, zoom: Math.max(map.getZoom() + 3, 10) }));
+  map.on("click", (e) => {
+    if (map.getZoom() < 9) return;
+    const p = e.point, box = [[p.x - 8, p.y - 8], [p.x + 8, p.y + 8]];
+    const fs = map.queryRenderedFeatures(box, { layers: ["wells", "laterals"] });
+    const uwis = [...new Map(fs.map((f) => [f.properties.u, f.properties])).values()];
+    if (uwis.length === 1) openWell(uwis[0].u);
+    else if (uwis.length > 1) showList(uwis, e.lngLat);
+  });
+  ["wells", "laterals", "dots"].forEach((id) => {
+    map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
+  });
+}
+
+// ------------------------------------------------------------------ DLS grid (township / section / LSD), computed for the view
+function sectionCell(sec) { const r = Math.floor((sec - 1) / 6), c = r % 2 === 0 ? (sec - 1) % 6 : 5 - (sec - 1) % 6; return [r, c]; }
+function updateGrid() {
+  const src = map.getSource("grid"), lab = map.getSource("grid-l"); if (!src || !lab) return;
+  const z = map.getZoom(), on = $("#gridT").checked && z >= 7.5;
+  const feats = [];
+  if (on) {
+    const b = map.getBounds(), S = Math.max(49, b.getSouth()), N = Math.min(60.5, b.getNorth());
+    const T = LOC.TWP_KM, step = 0.02;
+    for (let m = 1; m <= 6; m++) {
+      const east = -LOC.MER[m], westLimit = m < 6 ? -LOC.MER[m + 1] : -122.5;
+      if (b.getWest() > east || b.getEast() < westLimit || S >= N) continue;
+      const t0 = Math.max(1, Math.floor((S - 49) * 111.2 / T) + 1), t1 = Math.floor((N - 49) * 111.2 / T) + 1;
+      const inBand = ([lon]) => lon <= east + 1e-9 && lon >= westLimit - 1e-9;
+      const westOf = (lat) => (-b.getEast() > LOC.MER[m] ? (-b.getEast() - LOC.MER[m]) * 111.32 * Math.cos(lat * Math.PI / 180) : 0);
+      const midLat = (S + N) / 2;
+      const r0 = Math.max(1, Math.floor(westOf(midLat) / T)), r1 = Math.min(34, Math.ceil(((-b.getWest()) - LOC.MER[m]) * 111.32 * Math.cos(midLat * Math.PI / 180) / T) + 1);
+      if (r1 < r0 || (t1 - t0) * (r1 - r0) > 2500) continue;
+      const fine = z >= 11 ? (z >= 13.5 ? 24 : 6) : 1;          // subdivisions per township edge: 1, sections (6) or LSDs (24)
+      // north-south lines (range and section/LSD boundaries)
+      for (let r = r0 - 1; r <= r1; r++) for (let k = 0; k < fine; k++) {
+        const wkm = (r * fine + k) * T / fine, pts = [];
+        for (let nkm = (t0 - 1) * T; nkm <= t1 * T + 1e-6; nkm += step * 111.2) pts.push(LOC.gridPoint(m, nkm, wkm));
+        const q = pts.filter(inBand); if (q.length > 1) feats.push({ type: "Feature", properties: { w: k === 0 ? 2 : fine === 24 && k % 4 ? 0 : 1 }, geometry: { type: "LineString", coordinates: q } });
+      }
+      // east-west lines (township and section/LSD boundaries)
+      for (let t = t0 - 1; t <= t1; t++) for (let k = 0; k < fine; k++) {
+        const nkm = (t * fine + k) * T / fine, pts = [];
+        for (let r = r0 - 1; r <= r1; r++) for (let j = 0; j < 4; j++) pts.push(LOC.gridPoint(m, nkm, (r + j / 4) * T));
+        const q = pts.filter(inBand); if (q.length > 1) feats.push({ type: "Feature", properties: { w: k === 0 ? 2 : fine === 24 && k % 4 ? 0 : 1 }, geometry: { type: "LineString", coordinates: q } });
+      }
+      // labels
+      for (let t = t0; t <= t1; t++) for (let r = r0; r <= r1; r++) {
+        if (z < 11.5) {
+          const [lat, lon] = LOC.dlsToLatLon(null, null, t, r, m);
+          if (lon <= east && lon >= westLimit) feats.push({ type: "Feature", properties: { l: `${String(t).padStart(3, "0")}-${String(r).padStart(2, "0")}W${m}`, k: "t" }, geometry: { type: "Point", coordinates: [lon, lat] } });
+        } else for (let sec = 1; sec <= 36; sec++) {
+          if (z < 14.2) { const [lat, lon] = LOC.dlsToLatLon(null, sec, t, r, m); feats.push({ type: "Feature", properties: { l: String(sec), k: "s" }, geometry: { type: "Point", coordinates: [lon, lat] } }); }
+          else for (let lsd = 1; lsd <= 16; lsd++) { const [lat, lon] = LOC.dlsToLatLon(lsd, sec, t, r, m); feats.push({ type: "Feature", properties: { l: `${lsd}-${sec}`, k: "l" }, geometry: { type: "Point", coordinates: [lon, lat] } }); }
+        }
+      }
+    }
+  }
+  // lines and labels live in separate sources so a font that fails to load can't take the lines with it
+  src.setData({ type: "FeatureCollection", features: feats.filter((f) => f.geometry.type === "LineString") });
+  lab.setData({ type: "FeatureCollection", features: feats.filter((f) => f.geometry.type === "Point") });
+}
+function addGrid() {
+  map.addSource("grid", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addSource("grid-l", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "grid-lines", type: "line", source: "grid",
+    paint: { "line-color": css("--ink"), "line-opacity": ["match", ["get", "w"], 2, 0.35, 1, 0.18, 0.09], "line-width": ["match", ["get", "w"], 2, 1.1, 0.7] } }, "laterals");
+  map.addLayer({ id: "grid-labels", type: "symbol", source: "grid-l",
+    layout: { "text-field": ["get", "l"], "text-font": ["Open Sans Regular"], "text-size": ["match", ["get", "k"], "t", 12, "s", 12, 10], "text-allow-overlap": false },
+    paint: { "text-color": css("--muted"), "text-halo-color": dark() ? "#000" : "#fff", "text-halo-width": 1.5 } }, "laterals");
+  map.on("moveend", updateGrid);
+  updateGrid();
+}
+
+// ------------------------------------------------------------------ well panel
+const panel = () => $("#panel");
+function closePanel() { panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); setHash(); }
+function showList(props, lngLat) {
+  const p = panel(); p.hidden = false;
+  p.innerHTML = `<div class="ph"><div><h2 style="font-family:var(--font);font-weight:700">${props.length} wells here</h2><div class="name">Pick one</div></div><button class="x" aria-label="Close">×</button></div>
+    <div class="list">${props.sort((a, b) => b.b - a.b).map((f) => `<button data-u="${esc(f.u)}"><img src="${ICONS[f.s] || ICONS.other}" alt=""><span><span class="mono">${esc(LOC.display(f.u))}</span>${f.b ? `<br><small class="muted">${n(f.b, 1)} boe/d</small>` : ""}</span></button>`).join("")}</div>`;
+  p.querySelector(".x").onclick = closePanel;
+  p.querySelectorAll("[data-u]").forEach((b) => b.onclick = () => openWell(b.dataset.u));
+}
+async function openWell(canon, fly = false) {
+  const key = LOC.keyOf(canon), p = panel();
+  p.hidden = false; p.innerHTML = `<p class="muted">Loading ${esc(LOC.display(canon))}…</p>`;
+  let shard = null, w = null;
+  try { shard = await getJSON(`twp/${key}.json`); w = shard.wells[canon]; } catch (e) { /* no shard */ }
+  if (!w) {
+    p.innerHTML = `<div class="ph"><div><h2>${esc(LOC.display(canon))}</h2><div class="name">Not on the provincial well lists</div></div><button class="x" aria-label="Close">×</button></div>
+      <p class="muted" style="margin:0">This UWI isn't in the data. Check the event sequence (the last two digits), or search the legal location to see nearby wells.</p>`;
+    p.querySelector(".x").onclick = closePanel; return;
+  }
+  selected = canon; setHash();
+  map.setFilter("sel", ["==", ["get", "u"], canon]);
+  if (fly) map.flyTo({ center: [w.x, w.y], zoom: Math.max(map.getZoom(), 14.5), essential: true,
+    padding: innerWidth <= 640 ? { bottom: innerHeight * 0.6 } : { left: 420 } });
+  const sym = w.s || "other", pr = w.pr, months = shard.months;
+  const last3 = (arr) => arr ? arr.slice(-3).reduce((a, b) => a + b, 0) / 3 : 0;
+  const cum = (arr, toUnits) => arr ? arr.reduce((a, v, i) => a + v * daysIn(months[i]), 0) / toUnits : 0;
+  const latLon = `${n(w.y, 5)}, ${n(w.x, 5)}`;
+  const share = location.origin + location.pathname + "#well=" + encodeURIComponent(w.d);
+  const prec = { surveyed: "surveyed coordinates", "dls-lsd": "from legal location (±0.5 km)", "dls-section": "section centre (±1 km)", nts: "from NTS location (±0.5 km)" }[w.lp] || "approximate";
+  p.innerHTML = `
+    <div class="ph"><div><h2>${esc(w.d)}</h2>${w.n ? `<div class="name">${esc(w.n)}</div>` : ""}</div><button class="x" aria-label="Close">×</button></div>
+    <div><span class="status"><img src="${ICONS[sym]}" alt="">${esc(META.symbols[sym] || "Other")}</span></div>
+    ${pr ? `<div class="rates"><div class="rate"><b>${n(last3(pr[0]), 1)}</b><span>oil bbl/d</span></div><div class="rate"><b>${n(last3(pr[1]), 1)}</b><span>gas mcf/d</span></div><div class="rate"><b>${n(last3(pr[2]), 1)}</b><span>water bbl/d</span></div></div>
+      <div class="chart" id="chart"></div>
+      <div class="key"><span><i style="background:var(--oil)"></i>Oil bbl/d</span><span><i style="background:var(--gas)"></i>Gas mcf/d (right axis)</span><span><i style="background:var(--svc)"></i>Water bbl/d</span></div>
+      <p class="src">Last three months average, per calendar day. ${months.length}-month totals: ${n(cum(pr[0], 1))} bbl oil, ${n(cum(pr[1], 1000), 1)} mmcf gas.</p>` : ""}
+    <dl class="facts">
+      <div><dt>Licence${w.p === "BC" ? " (WA)" : ""}</dt><dd>${esc(w.li || "–")}</dd></div>
+      <div><dt>Licensee</dt><dd>${w.lc ? `<button class="link" data-op="${esc(w.lc)}">${esc(w.lc)}</button>` : "–"}</dd></div>
+      <div class="wide"><dt>Status</dt><dd>${esc(w.st || "–")}${w.sd ? ` <span class="muted">· since ${esc(w.sd)}</span>` : ""}</dd></div>
+      <div><dt>${w.p === "BC" ? "Rig release" : "Spud date"}</dt><dd>${esc(w.sp || "–")}</dd></div>
+      <div><dt>Total depth</dt><dd>${w.td ? n(w.td) + " m" : "–"}</dd></div>
+      <div><dt>${w.p === "BC" ? "Area" : "Field"}</dt><dd>${esc(w.fd || "–")}</dd></div>
+      <div><dt>${w.p === "AB" ? "Pool code" : "Pool / formation"}</dt><dd>${esc(w.fm || "–")}</dd></div>
+      <div><dt>Well type</dt><dd>${w.hz ? "Horizontal" : "Vertical or directional"}</dd></div>
+      <div><dt>Province</dt><dd>${esc(PROV[w.p] || w.p)}</dd></div>
+      <div class="wide"><dt>Surface location</dt><dd><span class="mono">${latLon}</span> <span class="muted">· ${esc(prec)}</span></dd></div>
+      ${w.by ? `<div class="wide"><dt>Bottom hole</dt><dd><span class="mono">${n(w.by, 5)}, ${n(w.bx, 5)}</span></dd></div>` : ""}
+    </dl>
+    <div class="actions">
+      <a class="btn primary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${w.y},${w.x}">Directions</a>
+      <a class="btn" target="_blank" rel="noopener" href="https://maps.apple.com/?daddr=${w.y},${w.x}">Apple Maps</a>
+      <button class="btn" id="copyUwi" type="button">Copy UWI</button>
+      <button class="btn" id="shareBtn" type="button">Copy link</button>
+    </div>
+    <p class="src">Source: ${esc(SOURCE[w.p] || "provincial regulator")}. Data through ${esc(META.latest?.[w.p] || META.months?.[1] || "")}.</p>`;
+  p.querySelector(".x").onclick = closePanel;
+  $("#copyUwi").onclick = () => copy(w.d, "UWI copied");
+  $("#shareBtn").onclick = () => copy(share, "Link copied");
+  p.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => { const o = OPS.findIndex((x) => x.n === b.dataset.op); if (o >= 0) setOperator(o); });
+  if (pr) productionChart($("#chart"), months, pr);
+  p.scrollTop = 0;
+}
+function daysIn(m) { const [y, mm] = m.split("-").map(Number); return new Date(y, mm, 0).getDate(); }
+function productionChart(host, months, pr) {
+  const W = 360, H = 150, L = 34, R = 36, T = 8, B = 20, k = months.length;
+  const oil = pr[0] || months.map(() => 0), gas = pr[1] || months.map(() => 0), wat = pr[2] || months.map(() => 0);
+  const nice = (v) => { if (!(v > 0)) return 1; const p = 10 ** Math.floor(Math.log10(v)), q = v / p; return (q <= 1 ? 1 : q <= 2 ? 2 : q <= 5 ? 5 : 10) * p; };
+  const yl = nice(Math.max(...oil, ...wat, 0.1)), yr = nice(Math.max(...gas, 0.1));
+  const x = (i) => L + i / Math.max(k - 1, 1) * (W - L - R), y1 = (v) => T + (H - T - B) * (1 - v / yl), y2 = (v) => T + (H - T - B) * (1 - v / yr);
+  const line = (a, y, c, dash = "") => `<path d="M${a.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" L")}" fill="none" stroke="${c}" stroke-width="1.8" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
+  let ticks = "";
+  months.forEach((m, i) => { if (m.endsWith("-01")) ticks += `<text x="${x(i)}" y="${H - 5}" text-anchor="middle">${m.slice(0, 4)}</text>`; });
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly production">
+    ${[0, 0.5, 1].map((f) => `<line class="g" x1="${L}" x2="${W - R}" y1="${T + (H - T - B) * (1 - f)}" y2="${T + (H - T - B) * (1 - f)}"/>
+      <text x="${L - 5}" y="${T + (H - T - B) * (1 - f) + 3}" text-anchor="end">${n(yl * f)}</text><text x="${W - R + 5}" y="${T + (H - T - B) * (1 - f) + 3}">${n(yr * f)}</text>`).join("")}
+    ${line(wat, y1, css("--svc"), "3 3")}${line(gas, y2, css("--gas"))}${line(oil, y1, css("--oil"))}${ticks}</svg>`;
+}
+function copy(text, msg) {
+  const done = () => toast(msg);
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(() => prompt("Copy:", text)); else prompt("Copy:", text);
+}
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 1800); }
+
+// ------------------------------------------------------------------ operators
+function setOperator(i) {
+  if (i != null && selected) { panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); }
+  opFilter = i == null ? null : { i, ...OPS[i] };
+  applyFilters();
+  const chip = $("#opFilter");
+  if (!opFilter) { chip.hidden = true; setHash(); return; }
+  chip.hidden = false;
+  chip.innerHTML = `<span>${esc(opFilter.n)} · ${n(opFilter.w)} wells</span><button aria-label="Show all operators">×</button>`;
+  chip.querySelector("button").onclick = () => setOperator(null);
+  const [w, s, e, nn] = opFilter.b;
+  map.fitBounds([[w, s], [e, nn]], { padding: 60, maxZoom: 12 });
+  setHash();
+}
+
+// ------------------------------------------------------------------ search
+let sugg = [], active = 0;
+async function suggestions(text) {
+  const out = [], t = text.trim();
+  if (!t) return out;
+  const p = LOC.parse(t);
+  if (p) out.push(p.kind === "uwi" ? { label: `Well ${p.label}`, hint: "UWI", go: () => openWell(p.canon, true) }
+                                  : { label: p.label, hint: "Legal location", go: () => { map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom }); closeSuggest(); } });
+  if (/^[0-9A-Z]{3,10}$/i.test(t)) {
+    const li = t.toUpperCase().replace(/^0+/, ""), shard = li.slice(-2).padStart(2, "0");
+    try {
+      const idx = await getJSON(`lic/${shard}.json`);
+      (idx[li] || []).slice(0, 6).forEach(([prov, u]) => out.push({ label: `Licence ${li} · ${LOC.display(u)}`, hint: prov, go: () => openWell(u, true) }));
+    } catch (e) { /* no licence shard */ }
+  }
+  if (t.length >= 2 && !p) {
+    const q = t.toLowerCase();
+    OPS.map((o, i) => [o, i]).filter(([o]) => o.n.toLowerCase().includes(q)).slice(0, 7)
+      .forEach(([o, i]) => out.push({ label: o.n, hint: `${n(o.w)} wells`, go: () => setOperator(i) }));
   }
   return out;
 }
-function pvRange(pdp) {
-  if (!pdp) return null;
-  const nb = netback(pdp.oil_frac ?? 0.5);
-  const vals = pdp.fits.map((f) => {
-    const q = forecast(f, 360); let pv = 0, vol = 0;
-    q.forEach((r, i) => { const v = r * 30.4; vol += v; if (nb > 0) pv += v * nb / Math.pow(1 + DECK.discount, (i + 1) / 12); });
-    return { pv, vol };
+function renderSuggest() {
+  const box = $("#suggest");
+  if (!sugg.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = sugg.map((s, i) => `<button class="${i === active ? "on" : ""}" data-i="${i}"><span>${esc(s.label)}</span><small>${esc(s.hint)}</small></button>`).join("");
+  box.querySelectorAll("button").forEach((b) => b.onmousedown = (e) => { e.preventDefault(); pick(+b.dataset.i); });
+}
+function pick(i) { const s = sugg[i]; if (!s) return; closeSuggest(); $("#q").blur(); s.go(); }
+function closeSuggest() { $("#suggest").hidden = true; }
+function initSearch() {
+  const q = $("#q");
+  let seq = 0;
+  q.addEventListener("input", async () => {
+    const my = ++seq; const s = await suggestions(q.value);
+    if (my !== seq) return;
+    sugg = s; active = 0; renderSuggest();
+    if (q.value.trim() && !s.length) { $("#suggest").hidden = false; $("#suggest").innerHTML = `<button disabled><span class="muted">No match. Try a UWI like 100/06-06-001-01W4/00, a licence number, a location like 06-06-001-01W4, or an operator.</span></button>`; }
   });
-  return { lo: Math.min(...vals.map((v) => v.pv)), hi: Math.max(...vals.map((v) => v.pv)), nb,
-           eur: [Math.min(...vals.map((v) => v.vol)), Math.max(...vals.map((v) => v.vol))] };
-}
-function renderDeck() {
-  $("#deckFields").innerHTML = DECK_FIELDS.map(([k, label, step]) =>
-    `<div class="field"><label for="deck-${k}">${label}</label><input id="deck-${k}" type="number" inputmode="decimal" step="${step}" value="${DECK[k]}"></div>`).join("");
-  DECK_FIELDS.forEach(([k]) => $("#deck-" + k).addEventListener("input", (e) => {
-    const v = parseFloat(e.target.value); if (!isFinite(v)) return;
-    DECK[k] = v; saveDeck(); deckSummary(); route();
-  }));
-  deckSummary();
-}
-function deckSummary() {
-  $("#deckSummary").textContent = `WTI $${fmt.n(DECK.wti_usd)} · AECO $${fmt.n(DECK.aeco_cad_gj, 2)}`;
-  $("#nbOil").textContent = "C$" + fmt.n(netback(1), 2) + "/bbl";
-  $("#nbGas").textContent = "C$" + fmt.n(netback(0), 2) + "/boe";
-}
-
-// ------------------------------------------------------------------ charts (inline SVG)
-const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; document.body.appendChild(tip);
-function svgEl(w, h) { return `<svg viewBox="0 0 ${w} ${h}" role="img">`; }
-function niceMax(v) { if (!(v > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
-function axes(W, H, L, R, T, B, ymax, ticks = 4, unit = "") {
-  let s = "";
-  for (let i = 0; i <= ticks; i++) {
-    const v = ymax * i / ticks, y = T + (H - T - B) * (1 - i / ticks);
-    s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text x="${L - 8}" y="${y + 4}" text-anchor="end">${fmt.k(v)}${i === ticks ? unit : ""}</text>`;
-  }
-  return s;
-}
-function monthTicks(months, x, H, B) {
-  let s = "";
-  months.forEach((m, i) => { if (m.endsWith("-01") || (months.length < 14 && i % 3 === 0)) s += `<text x="${x(i)}" y="${H - B + 18}" text-anchor="middle">${m.endsWith("-01") ? m.slice(0, 4) : fmt.month(m)}</text>`; });
-  return s;
-}
-function attachHover(host, n, x, label) {
-  const svg = host.querySelector("svg"), guide = host.querySelector(".guide");
-  if (!svg) return;
-  svg.addEventListener("pointermove", (e) => {
-    const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, px = (e.clientX - r.left) / r.width * vb.width;
-    let best = 0, bd = 1e9;
-    for (let i = 0; i < n; i++) { const d = Math.abs(x(i) - px); if (d < bd) { bd = d; best = i; } }
-    if (guide) { guide.setAttribute("x1", x(best)); guide.setAttribute("x2", x(best)); guide.style.opacity = 1; }
-    tip.innerHTML = label(best); tip.hidden = false;
-    tip.style.left = Math.min(innerWidth - 270, e.clientX + 14) + "px"; tip.style.top = (e.clientY + 14) + "px";
+  q.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { active = Math.min(active + 1, sugg.length - 1); renderSuggest(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { active = Math.max(active - 1, 0); renderSuggest(); e.preventDefault(); }
+    else if (e.key === "Enter") { pick(active); }
+    else if (e.key === "Escape") { closeSuggest(); q.blur(); }
   });
-  svg.addEventListener("pointerleave", () => { tip.hidden = true; if (guide) guide.style.opacity = 0; });
+  q.addEventListener("blur", () => setTimeout(closeSuggest, 150));
 }
 
-/** Stacked oil + gas (as boe) production history. */
-function historyChart(host, months, oil, gas) {
-  const W = 760, H = 280, L = 52, R = 12, T = 12, B = 30, n = months.length;
-  const gasBoe = gas.map((g) => g / 6), tot = oil.map((o, i) => o + gasBoe[i]);
-  const ymax = niceMax(Math.max(...tot, 1)), x = (i) => L + (n === 1 ? 0 : i / (n - 1)) * (W - L - R), y = (v) => T + (H - T - B) * (1 - v / ymax);
-  const area = (top, bot) => "M" + top.map((v, i) => `${x(i)},${y(v)}`).join(" L") + " L" + bot.map((v, i) => `${x(n - 1 - i)},${y(bot[n - 1 - i])}`).join(" L") + "Z";
-  const zero = months.map(() => 0);
-  host.innerHTML = `<div class="chart">${svgEl(W, H)}${axes(W, H, L, R, T, B, ymax)}
-    <path d="${area(oil, zero)}" fill="${css("--oil")}" fill-opacity=".85"/>
-    <path d="${area(tot, oil)}" fill="${css("--gas")}" fill-opacity=".55"/>
-    <path d="M${tot.map((v, i) => `${x(i)},${y(v)}`).join(" L")}" fill="none" stroke="${css("--ink")}" stroke-width="1.6"/>
-    ${monthTicks(months, x, H, B)}<line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${css("--ink")}" stroke-dasharray="3 3" style="opacity:0"/></svg>
-    <div class="legend"><span><i style="background:var(--oil)"></i>Oil + condensate (bbl/d)</span><span><i style="background:var(--gas);opacity:.6"></i>Gas (boe/d at 6:1)</span><span><i style="background:var(--ink)"></i>Total boe/d</span></div></div>`;
-  attachHover(host, n, x, (i) => `<b>${fmt.month(months[i])}</b><br>${fmt.n(tot[i])} boe/d<br>Oil ${fmt.n(oil[i])} bbl/d · Gas ${fmt.n(gas[i])} mcf/d`);
+// ------------------------------------------------------------------ layers panel, legend, about
+function initLayers() {
+  const btn = $("#layersBtn"), box = $("#layers");
+  btn.onclick = () => { box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden)); };
+  document.querySelectorAll("#basemaps button").forEach((b) => b.onclick = () => setBase(b.dataset.b));
+  $("#gridT").onchange = updateGrid;
+  $("#latT").onchange = (e) => map.setLayoutProperty("laterals", "visibility", e.target.checked ? "visible" : "none");
+  const counts = META.counts.by_symbol || {};
+  $("#wellCount").textContent = n(META.counts.wells) + " total";
+  $("#legend").innerHTML = SYM.filter((s) => counts[s]).map((s) => `<label><input type="checkbox" data-s="${s}" checked><img src="${ICONS[s]}" alt=""><span>${esc(META.symbols[s])}</span><small>${n(counts[s])}</small></label>`).join("");
+  $("#legend").querySelectorAll("input").forEach((c) => c.onchange = () => { c.checked ? hidden.delete(c.dataset.s) : hidden.add(c.dataset.s); applyFilters(); });
+  $("#aboutBtn").onclick = about;
+}
+function about() {
+  const m = META, c = m.counts, modal = $("#about");
+  modal.hidden = false;
+  modal.querySelector(".sheet").innerHTML = `<div class="ph"><h2 id="aboutTitle" style="font-family:var(--font)">About WellScope</h2><button class="x" aria-label="Close">×</button></div>
+    <p>A free map of every oil and gas well in Alberta, Saskatchewan, British Columbia and Manitoba, rebuilt every month from the regulators' public files. No account needed.</p>
+    <ul>${Object.entries(c.by_province || {}).map(([p, v]) => `<li><b>${PROV[p]}</b>: ${n(v)} wells. ${esc(SOURCE[p])}. Data through ${esc(m.latest?.[p] || "")}.</li>`).join("")}</ul>
+    <p>${n(c.producing)} wells reported production in the last three months. ${n(c.laterals)} horizontal laterals are drawn from published bottom-hole coordinates (Alberta).</p>
+    <p class="muted">Search accepts a UWI in any common format, a licence or well authorization number, a legal location (06-06-001-01W4, 060-12W5) or an operator. Wells without published coordinates are placed from their legal location, so they can be a few hundred metres off. Production is gross, per calendar day. Check each regulator's terms before reusing the data commercially.</p>
+    <p class="muted">Generated ${esc(m.generated)} · <a href="https://github.com/kosherite/wellscope" target="_blank" rel="noopener">Source code</a></p>`;
+  const close = () => (modal.hidden = true);
+  modal.querySelector(".x").onclick = close;
+  modal.onclick = (e) => { if (e.target === modal) close(); };
 }
 
-/** History plus a forecast band across decline shapes (the PDP view). */
-function forecastChart(host, months, hist, pdp, ahead = 60) {
-  if (pdp && pdp.hist) { hist = pdp.hist; months = months.slice(-hist.length); }
-  if (!pdp) { host.innerHTML = `<div class="empty">Not enough steady history to fit a decline here yet.</div>`; return; }
-  const W = 760, H = 280, L = 52, R = 12, T = 12, B = 30, h = hist.length, n = h + ahead;
-  const fc = pdp.fits.map((f) => forecast(f, ahead));
-  const lo = fc[0].map((_, i) => Math.min(...fc.map((s) => s[i]))), hi = fc[0].map((_, i) => Math.max(...fc.map((s) => s[i])));
-  const ymax = niceMax(Math.max(...hist, ...hi, 1)), x = (i) => L + i / (n - 1) * (W - L - R), y = (v) => T + (H - T - B) * (1 - v / ymax);
-  const allMonths = months.slice(); const [yy, mm] = months[h - 1].split("-").map(Number);
-  for (let k = 1; k <= ahead; k++) { const d = new Date(yy, mm - 1 + k, 1); allMonths.push(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")); }
-  const band = "M" + hi.map((v, i) => `${x(h + i)},${y(v)}`).join(" L") + " L" + lo.slice().reverse().map((v, i) => `${x(h + ahead - 1 - i)},${y(v)}`).join(" L") + ` L${x(h - 1)},${y(hist[h - 1])} Z`;
-  host.innerHTML = `<div class="chart">${svgEl(W, H)}${axes(W, H, L, R, T, B, ymax, 4, "")}
-    <rect x="${x(h - 1)}" y="${T}" width="${W - R - x(h - 1)}" height="${H - T - B}" fill="${css("--soft")}" opacity=".6"/>
-    <path d="${band}" fill="${css("--band")}" stroke="${css("--lilac-ink")}" stroke-width=".8" stroke-dasharray="3 3"/>
-    <path d="M${hist.map((v, i) => `${x(i)},${y(v)}`).join(" L")}" fill="none" stroke="${css("--ink")}" stroke-width="2"/>
-    <circle cx="${x(h - 1)}" cy="${y(hist[h - 1])}" r="4" fill="${css("--ink")}"/>
-    <text x="${x(h - 1) + 8}" y="${T + 14}">forecast →</text><text x="${x(h - 1) - 8}" y="${T + 14}" text-anchor="end">← reported</text>
-    ${monthTicks(allMonths, x, H, B)}<line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${css("--ink")}" stroke-dasharray="3 3" style="opacity:0"/></svg>
-    <div class="legend"><span><i style="background:var(--ink)"></i>Reported boe/d, wells online 12+ months</span><span><i style="background:var(--band);border:1px dashed var(--lilac-ink)"></i>Forecast range, decline shape b = 0.3 to 1.0</span></div></div>`;
-  attachHover(host, n, x, (i) => i < h ? `<b>${fmt.month(allMonths[i])}</b><br>${fmt.n(hist[i])} boe/d reported` :
-    `<b>${fmt.month(allMonths[i])}</b><br>${fmt.n(lo[i - h])} to ${fmt.n(hi[i - h])} boe/d forecast`);
+// ------------------------------------------------------------------ URL state: #well=…, #op=…, #@lat,lon,zoom
+let hashLock = false;
+function setHash() {
+  if (hashLock) return;
+  let h;
+  if (selected) h = "#well=" + encodeURIComponent(LOC.display(selected));
+  else if (opFilter) h = "#op=" + encodeURIComponent(opFilter.n);
+  else { const c = map.getCenter(); h = `#@${c.lat.toFixed(4)},${c.lng.toFixed(4)},${map.getZoom().toFixed(1)}`; }
+  history.replaceState(null, "", h);
 }
-
-/** Type curve: P10–P90 band and P50 by month on production. */
-function typeCurveChart(host, tc, color = "--lilac-ink", tc2 = null) {
-  if (!tc) { host.innerHTML = `<div class="empty">Type curves need at least five new wells with individual production. They appear once well-level data is loaded for this area.</div>`; return; }
-  const W = 760, H = 260, L = 52, R = 12, T = 12, B = 34, n = tc.p50.length;
-  const ymax = niceMax(Math.max(...tc.p10, ...(tc2 ? tc2.p10 : []), 1)), x = (i) => L + (n === 1 ? 0 : i / Math.max(n - 1, 1)) * (W - L - R), y = (v) => T + (H - T - B) * (1 - v / ymax);
-  const band = (c) => "M" + c.p10.map((v, i) => `${x(i)},${y(v)}`).join(" L") + " L" + c.p90.slice().reverse().map((v, i) => `${x(c.p90.length - 1 - i)},${y(v)}`).join(" L") + "Z";
-  const line = (a) => "M" + a.map((v, i) => `${x(i)},${y(v)}`).join(" L");
-  let ticks = ""; for (let i = 0; i < n; i += Math.max(1, Math.round(n / 8))) ticks += `<text x="${x(i)}" y="${H - B + 18}" text-anchor="middle">${i + 1}</text>`;
-  host.innerHTML = `<div class="chart">${svgEl(W, H)}${axes(W, H, L, R, T, B, ymax)}
-    <path d="${band(tc)}" fill="${css(color)}" fill-opacity=".16"/>
-    <path d="${line(tc.p50)}" fill="none" stroke="${css(color)}" stroke-width="2.4"/>
-    ${tc2 ? `<path d="${band(tc2)}" fill="${css("--peach-ink")}" fill-opacity=".12"/><path d="${line(tc2.p50)}" fill="none" stroke="${css("--peach-ink")}" stroke-width="2" stroke-dasharray="5 4"/>` : ""}
-    ${ticks}<text x="${W - R}" y="${H - 4}" text-anchor="end">months on production</text>
-    <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${css("--ink")}" stroke-dasharray="3 3" style="opacity:0"/></svg>
-    <div class="legend"><span><i style="background:${css(color)}"></i>${tc2 ? "Horizontal wells, " : ""}P50 with P10–P90 band</span>${tc2 ? `<span><i style="background:var(--peach-ink)"></i>Vertical wells, P50</span>` : ""}<span>${fmt.n(tc.n[0])} wells in month 1</span></div></div>`;
-  attachHover(host, n, x, (i) => `<b>Month ${i + 1}</b> · ${tc.n[i]} wells<br>P10 ${fmt.n(tc.p10[i])} · P50 ${fmt.n(tc.p50[i])} · P90 ${fmt.n(tc.p90[i])} boe/d`);
-}
-
-function barsChart(host, labels, series) {   // series: [{name, color, values}]
-  const W = 760, H = 240, L = 44, R = 8, T = 10, B = 28, n = labels.length;
-  const tot = labels.map((_, i) => series.reduce((a, s) => a + (s.values[i] || 0), 0));
-  const ymax = niceMax(Math.max(...tot, 1)), bw = (W - L - R) / n * 0.7, x = (i) => L + (i + 0.15) * (W - L - R) / n, y = (v) => T + (H - T - B) * (1 - v / ymax);
-  let s = "";
-  labels.forEach((lab, i) => {
-    let acc = 0;
-    series.forEach((se) => { const v = se.values[i] || 0; if (v) s += `<rect x="${x(i)}" y="${y(acc + v)}" width="${bw}" height="${y(acc) - y(acc + v)}" rx="3" fill="${css(se.color)}"/>`; acc += v; });
-    s += `<text x="${x(i) + bw / 2}" y="${H - B + 16}" text-anchor="middle">${lab}</text>`;
-  });
-  host.innerHTML = `<div class="chart">${svgEl(W, H)}${axes(W, H, L, R, T, B, ymax)}${s}</svg><div class="legend">${series.map((se) => `<span><i style="background:var(${se.color})"></i>${esc(se.name)}</span>`).join("")}</div></div>`;
-}
-
-function spark(v, w = 96, h = 26) {
-  if (!v || !v.length) return "";
-  const mx = Math.max(...v, 1e-9), x = (i) => i / Math.max(v.length - 1, 1) * w, y = (q) => h - 2 - (q / mx) * (h - 4);
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="M${v.map((q, i) => `${x(i)},${y(q)}`).join(" L")}" fill="none" stroke="${css("--lilac-ink")}" stroke-width="1.6"/></svg>`;
-}
-
-// ------------------------------------------------------------------ shared blocks
-function tile(color, k, v, s = "") { return `<div class="tile t-${color}"><span class="k">${k}</span><span class="v">${v}</span>${s ? `<span class="s">${s}</span>` : ""}</div>`; }
-function metricTiles(m, extra = "") {
-  const pv = pvRange(m.pdp);
-  return `<div class="tiles">
-    ${tile("lilac", "Production", fmt.k(m.boe) + " <small style='font-size:15px'>boe/d</small>", `${fmt.k(m.oil)} bbl/d oil · ${fmt.k(m.gas)} mcf/d gas`)}
-    ${tile("mint", "Oil weighting", fmt.pct(m.oil_pct), `Water cut ${fmt.pct(m.wcut)} · GOR ${m.gor ? fmt.k(m.gor) + " scf/bbl" : "–"}`)}
-    ${tile("peach", "Base decline", fmt.decl(m.decline), "Wells online 15+ months, year over year")}
-    ${tile("sky", "PDP value (PV)", pv ? (pv.nb <= 0 ? "Uneconomic" : `${fmt.money(pv.lo)}–${fmt.money(pv.hi).replace("$", "")}`) : "–", pv ? `At your deck, netback C$${fmt.n(pv.nb, 2)}/boe` : "Needs a decline fit")}
-    ${tile("butter", "New wells, 12 months", fmt.n(m.new12), m.ip90 ? `Median IP90 ${fmt.n(m.ip90)} boe/d` : "First production in the last year")}
-    ${extra}</div>`;
-}
-function wellsTable(list) {
-  if (!list || !list.length) return `<div class="empty">No producing wells or facilities listed here.</div>`;
-  return `<div class="tablewrap"><table><thead><tr><th>Well or facility</th><th>Operator</th><th>Status</th><th class="n">boe/d</th><th class="n">Oil bbl/d</th><th>Last 24 months</th><th>First prod.</th></tr></thead><tbody>
-    ${list.map((w) => `<tr data-lat="${w.lat ?? ""}" data-lon="${w.lon ?? ""}"><td><span class="mono">${esc(w.id)}</span>${w.name ? `<div class="muted" style="font-size:12.5px">${esc(w.name)}</div>` : w.type === "facility" ? `<div class="muted" style="font-size:12.5px">Facility (several wells)</div>` : ""}</td>
-      <td>${esc(w.op)}</td><td>${w.status ? `<span class="tag ${esc(w.status)}">${esc(w.status)}</span>` : ""}${w.hz ? ` <span class="tag Other">HZ</span>` : ""}</td>
-      <td class="n">${fmt.n(w.boe, 1)}</td><td class="n">${fmt.n(w.oil, 1)}</td><td>${spark(w.spark)}</td><td>${w.first && w.first === META.months[0] ? "Before " + fmt.month(w.first) : fmt.month(w.first)}</td></tr>`).join("")}
-    </tbody></table></div>`;
-}
-function snapshotBanner() {
-  const provs = Object.keys(META.latest);
-  if (META.counts.well_level_share > 0.2 && provs.length > 1) return "";
-  return `<div class="banner"><span>⚑</span><div><b>Pilot snapshot.</b> This copy shows real Petrinex data for ${provs.map((p) => PROV[p]).join(", ")} around Whitecourt, at battery level. The scheduled pipeline replaces it with every well in Alberta, Saskatchewan, BC and Manitoba.</div></div>`;
-}
-
-// ------------------------------------------------------------------ views
-function setNav(r) { document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", r.startsWith(a.dataset.r))); }
-
-function overview() {
-  const b = BASIN.basin, provs = Object.entries(BASIN.provinces);
-  const v = $("#view");
-  v.innerHTML = `${snapshotBanner()}
-  <section style="display:grid;gap:14px">
-    <span class="eyebrow">Western Canadian Sedimentary Basin · data through ${fmt.month(META.months[1])}</span>
-    <h1>Every producing well,<br>one screen.</h1>
-    <p class="lede">Production, decline, type curves, operators and inactive-well liability, built from public regulator data and refreshed every month.</p>
-  </section>
-  ${metricTiles(b, tile("rose", "Producing now", fmt.k(b.producing), META.counts.wells ? `${fmt.k(META.counts.wells)} wells on the provincial lists` : "wells and facilities reporting"))}
-  <section class="grid2">
-    <div class="card" style="display:grid;gap:10px"><div class="section-head"><h2>Production</h2><div class="chips" id="provChips"></div></div><div id="histChart"></div></div>
-    <div class="card" style="display:grid;gap:10px"><h2>Producing base, forecast</h2><p class="muted" style="margin:0;font-size:14px">Wells online 12+ months, fitted with four decline shapes. Value in the PDP tile uses your price deck.</p><div id="fcChart"></div></div>
-  </section>
-  ${provs.length > 1 ? `<section class="tiles">${provs.map(([p, m]) => `<a class="tile t-${{ AB: "sky", SK: "butter", BC: "mint", MB: "lilac" }[p]}" style="text-decoration:none" href="#map"><span class="k">${PROV[p]}</span><span class="v">${fmt.k(m.boe)}</span><span class="s">boe/d · ${fmt.pct(m.oil_pct)} oil · decline ${fmt.pct(m.decline, 1)} · data to ${fmt.month(m.latest)}</span></a>`).join("")}</section>` : ""}
-  <section class="card" style="display:grid;gap:10px"><div class="section-head"><h2>New-well type curve</h2><span class="muted" style="font-size:13px">boe/d per calendar day, aligned to first month of production</span></div><div id="tcChart"></div></section>
-  <section class="card" style="display:grid;gap:12px"><div class="section-head"><h2>Largest operators</h2><a class="pill" href="#operators">All operators</a></div>${opsTable(BASIN.top_operators.slice(0, 12))}</section>
-  ${BASIN.activity.years.length ? `<section class="card" style="display:grid;gap:10px"><h2>Wells spudded by year</h2><div id="actChart"></div><p class="muted" style="margin:0;font-size:13px">Horizontal share, latest year: ${fmt.pct(BASIN.activity.horizontal_share.at(-1))}</p></section>` : ""}
-  ${footer()}`;
-  const chips = $("#provChips");
-  const opts = [["ALL", "Basin"], ...provs.map(([p]) => [p, p])];
-  let sel = "ALL";
-  const draw = () => {
-    const m = sel === "ALL" ? b : BASIN.provinces[sel];
-    chips.innerHTML = opts.length > 2 ? opts.map(([k, l]) => `<button class="chip ${k === sel ? "on" : ""}" data-k="${k}">${l}</button>`).join("") : "";
-    chips.querySelectorAll("button").forEach((x) => x.onclick = () => { sel = x.dataset.k; draw(); });
-    historyChart($("#histChart"), m.months, m.history.oil, m.history.gas);
-    forecastChart($("#fcChart"), m.months.slice(-24), m.history.boe.slice(-24), m.pdp);
-  };
-  draw();
-  typeCurveChart($("#tcChart"), b.type_curve_hz || b.type_curve, "--lilac-ink", b.type_curve_hz ? b.type_curve_vt : null);
-  if (BASIN.activity.years.length) barsChart($("#actChart"), BASIN.activity.years, Object.entries(BASIN.activity.by_province).map(([p, vals]) => ({ name: PROV[p] || p, color: PCOL[p] || "--ink", values: vals })));
-  bindOpRows(v);
-}
-
-function opsTable(list) {
-  const mx = Math.max(...list.map((o) => o.boe || 0), 1);
-  return `<div class="tablewrap"><table><thead><tr><th>Operator</th><th class="n">boe/d</th><th></th><th class="n">Oil %</th><th class="n">Decline</th><th class="n">New 12m</th><th class="n">PDP PV</th><th class="n">Inactive wells</th></tr></thead><tbody>
-  ${list.map((o) => { const pv = pvRange(o.pdp); return `<tr data-op="${esc(o.id)}"><td><span class="opname">${esc(o.name)}</span><div>${Object.keys(o.prov || {}).map((p) => `<span class="tag ${p}">${p}</span>`).join(" ")}</div></td>
-    <td class="n">${fmt.k(o.boe)}</td><td style="width:120px"><div class="bar"><i style="width:${(o.boe || 0) / mx * 100}%;background:${o.oil_pct > 50 ? "var(--oil)" : "var(--gas)"}"></i></div></td>
-    <td class="n">${fmt.pct(o.oil_pct)}</td><td class="n">${fmt.decl(o.decline)}</td><td class="n">${fmt.n(o.new12)}</td>
-    <td class="n">${fmt.pv(pv)}</td><td class="n">${o.inactive == null ? "–" : fmt.n(o.inactive)}</td></tr>`; }).join("")}
-  </tbody></table></div>`;
-}
-function bindOpRows(root) { root.querySelectorAll("tr[data-op]").forEach((tr) => tr.onclick = () => { location.hash = "operator-" + tr.dataset.op; }); }
-
-// ---- operators list
-let opSort = { k: "boe", dir: -1 }, opQuery = "";
-async function operatorsView() {
-  OPS = OPS || await getJSON("operators.json");
-  const v = $("#view");
-  v.innerHTML = `<section style="display:grid;gap:10px"><span class="eyebrow">${fmt.n(OPS.length)} operators with production or inactive wells</span><h1>Operators</h1>
-    <p class="lede">Ranked by current production. Tap one for its decline, type curve, PDP value at your deck and inactive-well liability.</p></section>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><input class="search" id="opSearch" type="search" placeholder="Search operators" value="${esc(opQuery)}" aria-label="Search operators"></div>
-    <section class="card"><div class="tablewrap"><table id="opTable"></table></div></section>${footer()}`;
-  const cols = [["name", "Operator", 0], ["boe", "boe/d", 1], ["oil_pct", "Oil %", 1], ["decline", "Base decline", 1], ["new12", "New wells 12m", 1], ["ip90", "Median IP90", 1], ["wcut", "Water cut", 1], ["inactive", "Inactive wells", 1], ["cleanup", "Est. cleanup", 1]];
-  const draw = () => {
-    const q = opQuery.toLowerCase();
-    const rows = OPS.filter((o) => !q || o.name.toLowerCase().includes(q)).sort((a, b) => {
-      const x = a[opSort.k], y = b[opSort.k];
-      if (typeof x === "string") return opSort.dir * x.localeCompare(y);
-      return opSort.dir * ((x ?? -1e18) - (y ?? -1e18));
-    }).slice(0, 300);
-    $("#opTable").innerHTML = `<thead><tr>${cols.map(([k, l, n]) => `<th class="${n ? "n" : ""}" data-k="${k}">${l}${opSort.k === k ? (opSort.dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead><tbody>
-      ${rows.map((o) => `<tr data-op="${esc(o.id)}"><td><span class="opname">${esc(o.name)}</span> ${Object.keys(o.prov || {}).map((p) => `<span class="tag ${p}">${p}</span>`).join(" ")}</td>
-      <td class="n">${fmt.k(o.boe)}</td><td class="n">${fmt.pct(o.oil_pct)}</td><td class="n">${fmt.decl(o.decline)}</td><td class="n">${fmt.n(o.new12)}</td><td class="n">${fmt.n(o.ip90)}</td><td class="n">${fmt.pct(o.wcut)}</td>
-      <td class="n">${o.inactive == null ? "–" : fmt.n(o.inactive)}</td><td class="n">${o.cleanup ? fmt.money(o.cleanup) : "–"}</td></tr>`).join("")}</tbody>`;
-    $("#opTable").querySelectorAll("th").forEach((th) => th.onclick = () => { opSort = { k: th.dataset.k, dir: opSort.k === th.dataset.k ? -opSort.dir : -1 }; draw(); });
-    bindOpRows($("#opTable"));
-  };
-  $("#opSearch").addEventListener("input", (e) => { opQuery = e.target.value; draw(); });
-  draw();
-}
-
-async function operatorView(id) {
-  const v = $("#view");
-  let o;
-  try { o = await getJSON("operators/" + id + ".json"); } catch (e) { v.innerHTML = `<div class="empty">That operator isn't in this dataset. <a href="#operators">Back to operators</a></div>`; return; }
-  const lb = o.liability;
-  v.innerHTML = `<a class="pill" href="#operators" style="justify-self:start">← Operators</a>
-    <section style="display:grid;gap:10px"><span class="eyebrow">Operator ${Object.keys(o.prov || {}).map((p) => `<span class="tag ${p}">${PROV[p]}</span>`).join(" ")}</span><h1>${esc(o.name)}</h1>
-    <p class="lede">${fmt.n(o.producing)} producing wells or facilities, data through ${fmt.month(o.months.at(-1))}.</p></section>
-    ${metricTiles(o, lb ? tile("rose", "Inactive wells", fmt.n(lb.inactive), `${fmt.n(lb.wells)} licensed · est. cleanup ${fmt.money(lb.cleanup)}`) : "")}
-    <section class="grid2e"><div class="card" style="display:grid;gap:10px"><h2>Production</h2><div id="h"></div></div>
-      <div class="card" style="display:grid;gap:10px"><h2>Producing base, forecast</h2><div id="f"></div>${pdpNote(o.pdp)}</div></section>
-    <section class="card" style="display:grid;gap:10px"><div class="section-head"><h2>New-well type curve</h2><span class="muted" style="font-size:13px">${o.ip365 ? `Median first-year rate ${fmt.n(o.ip365)} boe/d` : ""}</span></div><div id="tc"></div></section>
-    <section class="grid2e">
-      <div class="card" style="display:grid;gap:10px;align-content:start"><h2>Where they produce</h2>${areaList(o.areas)}</div>
-      <div class="card" style="display:grid;gap:10px;align-content:start"><h2>Licence liability</h2>${lb ? `<div class="kv">
-        <div><span class="k">Wells licensed</span><span class="v">${fmt.n(lb.wells)}</span></div><div><span class="k">Producing (licence status)</span><span class="v">${fmt.n(lb.producing_lic)}</span></div>
-        <div><span class="k">Inactive</span><span class="v">${fmt.n(lb.inactive)}</span></div><div><span class="k">Abandoned</span><span class="v">${fmt.n(lb.abandoned)}</span></div>
-        <div><span class="k">Inactive share</span><span class="v">${fmt.pct(lb.wells ? lb.inactive / Math.max(lb.inactive + lb.producing_lic, 1) * 100 : null)}</span></div><div><span class="k">Est. cleanup, inactive wells</span><span class="v">${fmt.money(lb.cleanup)}</span></div></div>
-        <p class="muted" style="margin:0;font-size:13px">Cleanup uses a placeholder per-well formula (base plus depth). It is not the AER's licensee capability assessment.</p>` : `<div class="empty">No well licences matched this operator's name.</div>`}</div></section>
-    <section class="card" style="display:grid;gap:10px"><h2>Top wells and facilities</h2>${wellsTable(o.wells_list)}</section>${footer()}`;
-  historyChart($("#h"), o.months, o.history.oil, o.history.gas);
-  forecastChart($("#f"), o.months.slice(-24), o.history.boe.slice(-24), o.pdp);
-  typeCurveChart($("#tc"), o.type_curve_hz || o.type_curve, "--lilac-ink", o.type_curve_hz ? o.type_curve_vt : null);
-  v.querySelectorAll("[data-area]").forEach((a) => a.onclick = () => { location.hash = "area-" + a.dataset.area; });
-}
-function pdpNote(pdp) {
-  const pv = pvRange(pdp);
-  if (!pv) return "";
-  return `<div class="kv"><div><span class="k">PV at your deck (${fmt.pct(DECK.discount * 100)} discount)</span><span class="v">${pv.nb <= 0 ? "Uneconomic (netback C$" + fmt.n(pv.nb, 2) + "/boe)" : fmt.money(pv.lo) + " to " + fmt.money(pv.hi)}</span></div>
-    <div><span class="k">Remaining volume, 30-yr cap</span><span class="v">${fmt.k(pv.eur[0])} to ${fmt.k(pv.eur[1])} boe</span></div>
-    <div><span class="k">Current base decline (fit)</span><span class="v">${fmt.decl(pdp.decl)}</span></div><div><span class="k">Fit quality r²</span><span class="v">${fmt.n(pdp.r2, 2)}</span></div></div>`;
-}
-function areaList(areas) {
-  if (!areas || !areas.length) return `<div class="empty">No located production.</div>`;
-  const byId = new Map(CELLS.map((c) => [c.id, c])), mx = Math.max(...areas.map((a) => a.boe));
-  return `<div style="display:grid;gap:8px">${areas.slice(0, 12).map((a) => { const c = byId.get(a.id); return `<button class="pill" data-area="${a.id}" style="justify-content:space-between;width:100%;border-radius:12px">
-    <span>${esc(c ? c.label : a.id)} ${c && c.prov ? `<span class="tag ${c.prov}">${c.prov}</span>` : ""}</span><span class="num">${fmt.k(a.boe)} boe/d</span></button>`; }).join("")}
-    ${areas.length > 12 ? `<span class="muted" style="font-size:13px">and ${areas.length - 12} more areas</span>` : ""}</div>`;
-}
-
-// ---- map
-const METRICS = {
-  boe: { label: "Production (boe/d)", color: "--lilac-ink", get: (c) => c.boe, fmt: (v) => fmt.k(v) },
-  oil_pct: { label: "Oil weighting", color: "--mint-ink", get: (c) => c.oil_pct, fmt: (v) => fmt.pct(v) },
-  decline: { label: "Base decline", color: "--peach-ink", get: (c) => c.decline, fmt: (v) => fmt.decl(v) },
-  new12: { label: "New wells, 12 months", color: "--sky-ink", get: (c) => c.new12, fmt: (v) => fmt.n(v) },
-  inactive: { label: "Inactive wells", color: "--rose-ink", get: (c) => c.inactive, fmt: (v) => fmt.n(v) },
-};
-let MAP, LAYER, mapMetric = "boe", selectedArea = null;
-function mix(hex, t) {   // blend a token colour with the background
-  const a = css("--bg"), toRGB = (h) => { const m = h.replace("#", ""); return [0, 2, 4].map((i) => parseInt(m.slice(i, i + 2), 16)); };
-  const A = toRGB(a), B = toRGB(hex);
-  return "rgb(" + A.map((x, i) => Math.round(x + (B[i] - x) * t)).join(",") + ")";
-}
-async function mapView(areaId) {
-  const v = $("#view");
-  if (typeof L === "undefined") { v.innerHTML = `<div class="empty">The map library couldn't load. Check your connection and reload.</div>`; return; }
-  if (!$("#map")) {
-    v.innerHTML = `<section style="display:grid;gap:8px"><span class="eyebrow">${fmt.n(CELLS.length)} areas, each about one township</span><h1>Map</h1></section>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div class="chips" id="metricChips"></div><span class="spacer"></span><div class="scale" id="scale" style="min-width:220px"></div></div>
-      <div class="mapwrap"><div id="map" role="region" aria-label="Map of production areas"></div><div class="panel" id="panel"></div></div>${footer()}`;
-    MAP = L.map("map", { preferCanvas: true, zoomSnap: 0.5 });
-    const dark = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light";
-    // Esri's grey canvas basemaps need no API key; attribution is required.
-    const base = `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${dark ? "World_Dark_Gray_Base" : "World_Light_Gray_Base"}/MapServer/tile/{z}/{y}/{x}`;
-    L.tileLayer(base, { maxZoom: 16, attribution: "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors" }).addTo(MAP);
-    const b = CELLS.filter((c) => c.boe > 0);
-    const lats = b.flatMap((c) => [c.b[0], c.b[2]]), lons = b.flatMap((c) => [c.b[1], c.b[3]]);
-    MAP.fitBounds([[Math.min(...lats), Math.min(...lons)], [Math.max(...lats), Math.max(...lons)]], { padding: [20, 20] });
-    drawCells();
-    if (!areaId) $("#panel").innerHTML = `<div class="card" style="display:grid;gap:10px"><h2>Pick an area</h2><p class="muted" style="margin:0">Tap any square for its production, decline forecast, type curve, operators and wells.</p>
-      <h3 style="margin-top:6px">Top areas by production</h3>${areaList(CELLS.slice().sort((a, b) => b.boe - a.boe).slice(0, 10).map((c) => ({ id: c.id, boe: c.boe })))}</div>`;
-    $("#panel").querySelectorAll("[data-area]").forEach((a) => a.onclick = () => { location.hash = "area-" + a.dataset.area; });
-  }
-  if (areaId) showArea(areaId);
-}
-function drawCells() {
-  const m = METRICS[mapMetric];
-  $("#metricChips").innerHTML = Object.entries(METRICS).map(([k, x]) => `<button class="chip ${k === mapMetric ? "on" : ""}" data-k="${k}">${x.label}</button>`).join("");
-  $("#metricChips").querySelectorAll("button").forEach((b) => b.onclick = () => { mapMetric = b.dataset.k; drawCells(); });
-  const vals = CELLS.map(m.get).filter((x) => x != null && isFinite(x)).sort((a, b) => a - b);
-  const q = (p) => vals.length ? vals[Math.min(vals.length - 1, Math.floor(p * vals.length))] : 0;
-  const breaks = [q(0.2), q(0.4), q(0.6), q(0.8)], col = css(m.color);
-  const shade = (v) => v == null || !isFinite(v) ? null : mix(col, 0.18 + 0.82 * (breaks.filter((b) => v > b).length / 4));
-  $("#scale").innerHTML = `<span style="background:linear-gradient(90deg,${mix(col, .18)},${col})"></span><span style="flex:none">${m.fmt(q(0))} – ${m.fmt(vals.at(-1))}</span>`;
-  if (LAYER) LAYER.remove();
-  LAYER = L.layerGroup().addTo(MAP);
-  CELLS.forEach((c) => {
-    const val = m.get(c), fill = shade(val);
-    if (!fill || (mapMetric !== "inactive" && !c.boe)) return;
-    L.rectangle([[c.b[0], c.b[1]], [c.b[2], c.b[3]]], { color: c.id === selectedArea ? css("--ink") : fill, weight: c.id === selectedArea ? 2.5 : 0.5,
-      fillColor: fill, fillOpacity: 0.78 }).bindTooltip(`<b>${esc(c.label)}</b><br>${m.label}: ${m.fmt(val)}<br>${fmt.k(c.boe)} boe/d${c.top ? " · " + esc(c.top) : ""}`, { sticky: true })
-      .on("click", () => { location.hash = "area-" + c.id; }).addTo(LAYER);
-  });
-}
-async function showArea(id) {
-  selectedArea = id; drawCells();
-  const c = CELLS.find((x) => x.id === id);
-  if (c) MAP.fitBounds([[c.b[0] - 0.15, c.b[1] - 0.25], [c.b[2] + 0.15, c.b[3] + 0.25]], { maxZoom: 10 });
-  const p = $("#panel");
-  p.innerHTML = `<div class="card"><p class="muted">Loading area…</p></div>`;
-  let a;
-  try { a = await getJSON("cells/" + id + ".json"); } catch (e) {
-    p.innerHTML = `<div class="card" style="display:grid;gap:8px"><h2>${esc(c ? c.label : id)}</h2><p class="muted" style="margin:0">${c && c.inactive ? fmt.n(c.inactive) + " inactive wells, no reported production in this window." : "No production detail for this area."}</p></div>`; return;
-  }
-  const pv = pvRange(a.pdp);
-  p.innerHTML = `<div class="card" style="display:grid;gap:14px">
-      <div><span class="eyebrow">${a.prov ? PROV[a.prov] : ""} · ${a.b[0].toFixed(2)}°N ${Math.abs(a.b[1]).toFixed(2)}°W</span><h2 style="font-size:28px">${esc(a.label)}</h2></div>
-      <div class="tiles" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-        ${tile("lilac", "Production", fmt.k(a.boe), "boe/d")}${tile("mint", "Oil weighting", fmt.pct(a.oil_pct), `GOR ${a.gor ? fmt.k(a.gor) : "–"} scf/bbl`)}
-        ${tile("peach", "Base decline", fmt.decl(a.decline), "year over year")}${tile("sky", "PDP value", fmt.pv(pv), pv && pv.nb > 0 ? `range ${fmt.money(pv.lo)}–${fmt.money(pv.hi)}` : pv ? `netback C$${fmt.n(pv.nb, 2)}/boe at your deck` : "")}
-      </div>
-      <div class="kv"><div><span class="k">Producing</span><span class="v">${fmt.n(a.producing)}</span></div><div><span class="k">New wells, 12 months</span><span class="v">${fmt.n(a.new12)}</span></div>
-        <div><span class="k">Water cut</span><span class="v">${fmt.pct(a.wcut)}</span></div><div><span class="k">Inactive wells</span><span class="v">${fmt.n(a.inactive)}</span></div></div></div>
-    <div class="card" style="display:grid;gap:8px"><h3>Production and forecast</h3><div id="af"></div></div>
-    <div class="card" style="display:grid;gap:8px"><h3>Type curve, new wells</h3><div id="at"></div></div>
-    <div class="card" style="display:grid;gap:8px"><h3>Operators here</h3>${(a.operators || []).map((o) => `<div style="display:grid;gap:4px"><div style="display:flex;justify-content:space-between;gap:8px"><span class="opname">${esc(o.op)}</span><span class="num muted">${fmt.k(o.boe)} boe/d · ${fmt.pct(o.share)}</span></div><div class="bar"><i style="width:${o.share}%;background:var(--lilac-ink)"></i></div></div>`).join("") || `<div class="empty">No producing operators.</div>`}</div>
-    <div class="card" style="display:grid;gap:8px"><h3>Wells and facilities</h3>${wellsTable(a.wells_list.slice(0, 40))}</div>`;
-  forecastChart($("#af"), a.months.slice(-24), a.history.boe.slice(-24), a.pdp, 48);
-  typeCurveChart($("#at"), a.type_curve);
-  p.scrollTop = 0;
-  if (innerWidth < 1000) p.scrollIntoView({ behavior: "smooth" });
-}
-
-function methodsView() {
-  const m = META, bt = m.backtest, lc = m.location_check;
-  $("#view").innerHTML = `<section style="display:grid;gap:10px"><span class="eyebrow">Generated ${esc(m.generated)}</span><h1>Data and methods</h1>
-    <p class="lede">Every number comes from a public regulator file, converted the same way across provinces. Here's where it comes from and how much to trust it.</p></section>
-    <section class="tiles">
-      ${tile("lilac", "Wells on provincial lists", fmt.k(m.counts.wells))}${tile("mint", "Producing wells and facilities", fmt.k(m.counts.entities), `${fmt.pct(m.counts.well_level_share * 100)} reported as single wells`)}
-      ${tile("sky", "Back-test error", bt ? fmt.pct(bt.median_abs_err, 1) : "–", bt ? `median, ${bt.n} areas, last 6 months held out` : "")}
-      ${tile("butter", "DLS location error", lc ? lc.median_km + " km" : "–", lc ? `median vs surveyed, ${fmt.k(lc.n)} wells (p90 ${lc.p90_km} km)` : "Measured when surveyed coordinates load")}
-    </section>
-    <section class="card prose" style="display:grid;gap:12px"><h2>Sources</h2>
-      <ul>${Object.entries(m.sources).map(([p, s]) => `<li><b>${esc(s.name)}</b>: ${s.pages.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace("https://", ""))}</a>`).join(", ")}. Data through ${fmt.month(m.latest[p])}.</li>`).join("")}</ul>
-      <p class="muted" style="font-size:14px">Alberta: AER ST37 well list and Petrinex Alberta public data. Saskatchewan: Petrinex Saskatchewan public data (the province's own well bundles are paid). BC: BC Energy Regulator well index and all-well production. Manitoba: Petroleum Branch well monthly production workbooks and weekly UWI list.</p></section>
-    <section class="card prose" style="display:grid;gap:12px"><h2>Method</h2><ol class="steps">
-      <li class="tile t-sky"><span class="k">1 · Normalise</span><span class="s">Oil and condensate in bbl/d, gas in mcf/d, per calendar day. boe = bbl + mcf ÷ 6. UWIs from every publisher are matched to one format.</span></li>
-      <li class="tile t-mint"><span class="k">2 · Locate</span><span class="s">Surveyed coordinates where published (AER, BCER). Otherwise the legal location (DLS or NTS) is converted; the error is measured and shown above.</span></li>
-      <li class="tile t-butter"><span class="k">3 · Decline</span><span class="s">Arps q = qᵢ/(1+b·Dᵢ·t)^(1/b) with a 6%/yr terminal tail, fitted at b = 0.3, 0.5, 0.8 and 1.0, reported as a range.</span></li>
-      <li class="tile t-lilac"><span class="k">4 · Value</span><span class="s">Forecast × field netback from your price deck, discounted monthly. Pre-tax, producing wells only (PDP-style), 30-year cap.</span></li>
-      <li class="tile t-peach"><span class="k">5 · Test</span><span class="s">Refit each area without its last 6 months and compare the forecast with what was reported.</span></li></ol></section>
-    <section class="card prose" style="display:grid;gap:10px"><h2>Definitions</h2><ul>
-      <li><b>Base decline</b>: last three months versus the same three months a year earlier, for wells online at least 15 months.</li>
-      <li><b>Type curve</b>: new wells aligned to their first producing month. P10 is the high case (10% of wells do better), P90 the low case.</li>
-      <li><b>IP90 / IP365</b>: average calendar-day boe/d over the first three and twelve months.</li>
-      <li><b>Inactive wells</b>: suspended or shut-in on the provincial licence list. Cleanup is a placeholder of $80k plus $55 per metre of depth, not the regulator's liability rating.</li></ul></section>
-    <section class="card prose" style="display:grid;gap:10px"><h2>Limits</h2><ul>
-      <li>Public volumes are gross. Companies report working-interest volumes, so operator totals here won't match their filings exactly.</li>
-      <li>Confidential wells are reported at facility level and can't be split by well.</li>
-      <li>Values are pre-tax and ignore capital, abandonment timing and hedges. They are screening estimates, not reserves.</li>
-      <li>Check each regulator's terms of use before commercial redistribution.</li></ul>
-      ${m.problems && Object.keys(m.problems).length ? `<div class="banner"><div><b>Last run had problems:</b> ${Object.entries(m.problems).map(([k, v]) => `${esc(k)}: ${esc(v).slice(0, 160)}`).join("; ")}</div></div>` : ""}</section>${footer()}`;
-}
-function footer() {
-  return `<footer><div>Sources: AER, Petrinex (Alberta and Saskatchewan public data), BC Energy Regulator, Manitoba Petroleum Branch. Screening estimates, not reserves.</div>
-    <div>Data through ${fmt.month(META.months[1])} · generated ${esc(META.generated)} · <a href="https://github.com/kosherite/wellscope" target="_blank" rel="noopener">source on GitHub</a></div></footer>`;
-}
-
-// ------------------------------------------------------------------ router
-async function route() {
-  const h = location.hash.replace("#", "") || "overview";
-  setNav(h);
-  tip.hidden = true;
+function readHash() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  hashLock = true;
   try {
-    if (h.startsWith("area-")) { setNav("map"); await mapView(h.slice(5)); return; }
-    if (h === "map") { await mapView(); return; }
-    MAP = null; LAYER = null;
-    if (h === "operators") await operatorsView();
-    else if (h.startsWith("operator-")) await operatorView(h.slice(9));
-    else if (h === "methods") methodsView();
-    else overview();
-    if (!h.startsWith("area-")) scrollTo(0, 0);
-  } catch (e) {
-    console.error(e);
-    $("#view").innerHTML = `<div class="empty">Something failed while loading this page: ${esc(e.message)}. Reload to try again.</div>`;
-  }
+    if (h.startsWith("well=")) { const p = LOC.parse(h.slice(5)); if (p && p.kind === "uwi") { map.jumpTo({ center: [p.lon, p.lat], zoom: 14.5 }); openWell(p.canon, true); } }
+    else if (h.startsWith("op=")) { const i = OPS.findIndex((o) => o.n === h.slice(3)); if (i >= 0) setOperator(i); }
+    else if (h.startsWith("@")) { const [la, lo, z] = h.slice(1).split(",").map(Number); if (isFinite(la)) map.jumpTo({ center: [lo, la], zoom: z || 10 }); }
+  } finally { hashLock = false; }
 }
 
+// ------------------------------------------------------------------ start
 (async function start() {
-  try {
-    [META, BASIN, CELLS] = await Promise.all([getJSON("meta.json"), getJSON("basin.json"), getJSON("cells.json")]);
-  } catch (e) {
-    $("#view").innerHTML = `<div class="empty">No data found in <span class="mono">site/data</span>. Run <span class="mono">python -m wellscope run</span> to build it.</div>`;
-    return;
-  }
-  loadDeck(); renderDeck();
-  const deck = $("#deck"), open = (o) => { deck.classList.toggle("open", o); deck.setAttribute("aria-hidden", String(!o)); };
-  $("#deckBtn").onclick = () => open(true);
-  $("#deckClose").onclick = () => open(false);
-  $("#deckReset").onclick = () => { DECK = { ...META.price_deck }; saveDeck(); renderDeck(); route(); };
-  addEventListener("keydown", (e) => { if (e.key === "Escape") open(false); });
-  addEventListener("hashchange", () => { if (!location.hash.startsWith("#area-") || !$("#map")) route(); else mapView(location.hash.slice(6)); });
-  route();
+  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("operators.json")]); }
+  catch (e) { document.body.insertAdjacentHTML("beforeend", `<div class="modal"><div class="sheet"><h2>No map data yet</h2><p>Run the pipeline (<span class="mono">python -m wellscope run</span>, or the "Build basin data" action) to create <span class="mono">site/data</span>.</p></div></div>`); return; }
+  if (typeof maplibregl === "undefined" || typeof pmtiles === "undefined") { toast("The map library couldn't load. Check your connection and reload."); return; }
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol("pmtiles", protocol.tile);
+  map = new maplibregl.Map({ container: "map", style: baseStyle(), center: [-113.5, 54.2], zoom: 4.6, maxZoom: 18, minZoom: 3, hash: false, attributionControl: { compact: true } });
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "bottom-right");
+  map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), "bottom-right");
+  map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+  map.on("load", () => {
+    addWellLayers(); addGrid(); initLayers(); initSearch();
+    readHash();
+    map.on("moveend", () => { if (!selected && !opFilter) setHash(); });
+  });
+  addEventListener("keydown", (e) => { if (e.key === "Escape") { closePanel(); $("#about").hidden = true; } });
 })();

@@ -19,7 +19,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write        # to push screenshots of the built site to the ci-screenshots branch
   pages: write
   id-token: write
 
@@ -46,6 +46,21 @@ jobs:
           key: raw-${{ github.run_id }}
           restore-keys: raw-
 
+      - name: Restore tippecanoe
+        id: tc
+        uses: actions/cache@v4
+        with:
+          path: ~/tippecanoe
+          key: tippecanoe-2.82.0-${{ runner.os }}
+
+      - name: Build tippecanoe (makes the map tiles)
+        if: steps.tc.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y -q libsqlite3-dev zlib1g-dev
+          git clone -q --depth 1 --branch 2.82.0 https://github.com/felt/tippecanoe.git /tmp/tc
+          make -C /tmp/tc -j4 >/dev/null
+          mkdir -p ~/tippecanoe && cp /tmp/tc/tippecanoe ~/tippecanoe/
+
       - name: Probe sources (column check)
         run: python -m wellscope probe || echo "::warning::One or more sources failed the probe; see log above"
 
@@ -53,11 +68,24 @@ jobs:
         if: ${{ !inputs.probe_only }}
         run: |
           free -h; df -h . | tail -1
+          export TIPPECANOE=~/tippecanoe/tippecanoe
           python -m wellscope run \
             --provinces "${{ inputs.provinces || 'AB,SK,BC,MB' }}" \
             --months "${{ inputs.months || '36' }}" \
             --out site/data --parquet data/build --allow-partial
-          du -sh site/data
+          du -sh site/data site/data/wells.pmtiles site/data/twp
+
+      - name: Screenshot the built site
+        if: ${{ !inputs.probe_only }}
+        continue-on-error: true
+        run: |
+          pip install -q playwright && python -m playwright install --with-deps chromium >/dev/null
+          python scripts/rangeserve.py site 8000 & sleep 2
+          python scripts/ci_screenshots.py http://127.0.0.1:8000 /tmp/shots
+          cd /tmp/shots && git init -q && git checkout -q -b ci-screenshots
+          git -c user.name="wellscope-ci" -c user.email="ci@users.noreply.github.com" add -A
+          git -c user.name="wellscope-ci" -c user.email="ci@users.noreply.github.com" commit -q -m "Screenshots from run ${{ github.run_id }} (${{ github.ref_name }})"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screenshots
 
       - name: Keep the site data for website-only deploys
         if: ${{ !inputs.probe_only }}
