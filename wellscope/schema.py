@@ -50,7 +50,7 @@ def canon_uwi(text) -> str | None:
 
 def status_group(raw) -> str:
     """Collapse every province's status vocabulary (words and abbreviations) into the groups analysts filter by."""
-    s = str(raw or "").upper().strip()
+    s = "" if _missing(raw) else str(raw).upper().strip()
     if not s or s in ("NAN", "NONE", "NOT APPLICABLE", "<NA>"):
         return "Other"
     w = s.replace("-", " ").split()
@@ -70,8 +70,15 @@ def status_group(raw) -> str:
     return "Other"
 
 
+def _missing(v) -> bool:
+    try:
+        return v is None or bool(pd.isna(v))
+    except (TypeError, ValueError):
+        return False
+
+
 def fluid_group(raw) -> str:
-    s = str(raw or "").upper()
+    s = "" if _missing(raw) else str(raw).upper()
     if "BITUMEN" in s or "OIL SAND" in s:
         return "Bitumen"
     if "OIL" in s:
@@ -115,8 +122,9 @@ def finish_wells(df: pd.DataFrame, province: str) -> pd.DataFrame:
     need = df["lat"].isna()
     if need.any():
         located = df.loc[need, "uwi"].map(locate.locate)
-        df.loc[need, "lat"] = [x[0] for x in located]
-        df.loc[need, "lon"] = [x[1] for x in located]
+        df.loc[need, "lat"] = np.array([np.nan if x[0] is None else x[0] for x in located], dtype=float)
+        df.loc[need, "lon"] = np.array([np.nan if x[1] is None else x[1] for x in located], dtype=float)
+        df["loc_precision"] = df["loc_precision"].astype("object")
         df.loc[need, "loc_precision"] = [x[2] for x in located]
     df["total_depth_m"] = pd.to_numeric(df["total_depth_m"], errors="coerce")
     df["spud_date"] = to_date(df["spud_date"])

@@ -146,3 +146,18 @@ def test_mb_wide_months():
     out = finish_production(mb._standardize(df), "MB")
     assert len(out) == 2 and out.entity_id.iloc[0] == "00/14-14-009-29W1/0"
     assert out.oil_m3.tolist() == [10, 10] and out.water_m3.tolist() == [40, 40]
+
+
+def test_wells_with_missing_values_and_no_coordinates():
+    df = pd.DataFrame({"uwi": ["200D080H092G0300", "100060608613W600", "junk"], "status": [pd.NA, "ABAN", None],
+                       "fluid": [pd.NA, "OIL", None], "lat": [pd.NA, pd.NA, pd.NA], "lon": [None, None, None]})
+    w = finish_wells(df, "BC")
+    assert list(w["status_group"]) == ["Other", "Abandoned", "Other"]
+    assert w["lat"].notna().sum() == 2 and set(w["loc_precision"]) == {"nts", "dls-lsd", "unplaced"}
+
+
+def test_build_without_well_lists(tmp_path):
+    _, P = synthetic()
+    from wellscope.schema import WELL_COLS
+    meta = analytics.build(pd.DataFrame(columns=WELL_COLS), P, tmp_path, {"AB": {"name": "Alberta", "pages": []}}, min_n=3)
+    assert meta["counts"]["entities"] == 55 and meta["counts"]["wells"] == 0

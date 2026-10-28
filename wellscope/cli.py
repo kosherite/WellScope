@@ -15,6 +15,7 @@ import pandas as pd
 
 from . import analytics, fetch
 from .config import SOURCES
+from .schema import WELL_COLS
 from .sources import ab, bc, mb, sk
 
 ADAPTERS = {"AB": ab, "SK": sk, "BC": bc, "MB": mb}
@@ -68,7 +69,7 @@ def cmd_run(a) -> int:
         print("No production loaded from any province", file=sys.stderr)
         notice("Build FAILED", f"No production loaded from any province. Problems: {problems}", "error")
         return 1
-    W = pd.concat(wells, ignore_index=True) if wells else pd.DataFrame(columns=analytics.__dict__.get("WELL_COLS", []))
+    W = pd.concat(wells, ignore_index=True) if wells else pd.DataFrame(columns=WELL_COLS)
     P = pd.concat(prods, ignore_index=True)
     if a.parquet:
         Path(a.parquet).mkdir(parents=True, exist_ok=True)

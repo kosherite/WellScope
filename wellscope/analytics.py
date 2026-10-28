@@ -104,11 +104,14 @@ def prepare(wells: pd.DataFrame, prod: pd.DataFrame):
               "loc_precision", "total_depth_m", "spud_date"):
         ent[c] = pd.NA
         ent.loc[is_w, c] = ent.loc[is_w, "entity_id"].map(w[c]) if c in w else pd.NA
+    ent["lat"] = pd.to_numeric(ent["lat"], errors="coerce").astype(float)
+    ent["lon"] = pd.to_numeric(ent["lon"], errors="coerce").astype(float)
+    ent["loc_precision"] = ent["loc_precision"].astype("object")
     need = ent["lat"].isna()
     src = ent["entity_id"].where(is_w, ent["location"])
     loc = src[need].map(locate.locate)
-    ent.loc[need, "lat"] = [x[0] for x in loc]
-    ent.loc[need, "lon"] = [x[1] for x in loc]
+    ent.loc[need, "lat"] = np.array([np.nan if x[0] is None else x[0] for x in loc], dtype=float)
+    ent.loc[need, "lon"] = np.array([np.nan if x[1] is None else x[1] for x in loc], dtype=float)
     ent.loc[need, "loc_precision"] = [x[2] for x in loc]
     ent["lat"] = pd.to_numeric(ent["lat"], errors="coerce")
     ent["lon"] = pd.to_numeric(ent["lon"], errors="coerce")
