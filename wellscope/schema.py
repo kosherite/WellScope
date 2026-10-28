@@ -13,10 +13,11 @@ WELL_COLS = ["uwi", "province", "well_name", "licensee", "status", "status_group
 PROD_COLS = ["entity_id", "entity_type", "province", "month", "operator", "facility_id", "location",
              "oil_m3", "gas_e3m3", "cond_m3", "water_m3", "hours"]
 
-_DLS_UWI = re.compile(r"(?:(\d)?(\d{2})/)?(\d{2})-(\d{2})-(\d{3})-(\d{2})W(\d)(?:/(\d{1,2}))?", re.I)
-_DLS_COMPACT = re.compile(r"^(?:[A-Z]{2}WI)?(\d)(\d{2})(\d{2})(\d{2})(\d{3})(\d{2})W(\d)(\d{1,2})$", re.I)
-_NTS_UWI = re.compile(r"(?:(\d)?(\d{2})/)?([A-D])-(\d{3})-([A-L])/(\d{3})-([A-P])-(\d{2})(?:/(\d{1,2}))?", re.I)
-_NTS_COMPACT = re.compile(r"^(?:[A-Z]{2}WI)?(\d)(\d{2})([A-D])(\d{3})([A-L])(\d{3})([A-P])(\d{2})(\d{1,2})$", re.I)
+# Location exception codes can contain letters (e.g. "F1" for water source wells, "1A", "D0").
+_DLS_UWI = re.compile(r"(?:(\d)?([0-9A-Z]{2})/)?(\d{2})-(\d{2})-(\d{3})-(\d{2})W(\d)(?:/(\d{1,2}))?", re.I)
+_DLS_COMPACT = re.compile(r"^(?:[A-Z]{2}WI)?(\d)([0-9A-Z]{2})(\d{2})(\d{2})(\d{3})(\d{2})W(\d)(\d{1,2})$", re.I)
+_NTS_UWI = re.compile(r"(?:(\d)?([0-9A-Z]{2})/)?([A-D])-(\d{3})-([A-L])/(\d{3})-([A-P])-(\d{2})(?:/(\d{1,2}))?", re.I)
+_NTS_COMPACT = re.compile(r"^(?:[A-Z]{2}WI)?(\d)([0-9A-Z]{2})([A-D])(\d{3})([A-L])(\d{3})([A-P])(\d{2})(\d{1,2})$", re.I)
 
 
 def canon_uwi(text) -> str | None:
@@ -55,17 +56,18 @@ def status_group(raw) -> str:
         return "Other"
     w = s.replace("-", " ").split()
     first = w[0] if w else ""
-    if "ABAND" in s or "JUNK" in s or "RECLAIM" in s or first in ("ABD", "ABAN", "AB", "JNK", "RAB") or "CERTIFICATE" in s:
+    if "ABAND" in s or "JUNK" in s or "RECLAIM" in s or "J & A" in s or s.startswith(("ABZ", "ABR", "ABN")) or \
+            first in ("ABD", "ABAN", "AB", "JNK", "RAB") or "CERTIFICATE" in s:
         return "Abandoned"
-    if "SUSP" in s or "SHUT" in s or "INACTIVE" in s or "CLOSED" in s or first in ("SI", "CAPP", "CAP", "CAPPED", "SIP"):
+    if "SUSP" in s or "SHUT" in s or "INACTIVE" in s or "CLOSED" in s or first in ("SI", "CAPP", "CAP", "CAPPED", "SIP", "DSUS"):
         return "Inactive"
     if any(k in s for k in ("PUMP", "FLOW", "GAS LIFT", "PRODUC", "ACTIVE", "OPERATING", "PLUNGER")) or \
-            first in ("PMP", "FLW", "PROD", "GLIFT", "PRD", "OIL", "GAS"):
+            first in ("PMP", "FLW", "PROD", "GLIFT", "PRD", "OIL", "GAS", "ACT"):
         return "Producing"
-    if any(k in s for k in ("INJ", "DISP", "STORAGE", "OBSERV", "SOURCE")) or first in ("WINJ", "GINJ", "DSPL", "OBS"):
+    if any(k in s for k in ("INJ", "DISP", "STORAGE", "OBSERV", "SOURCE", "CAVERN")) or first in ("WINJ", "GINJ", "DSPL", "OBS", "WAG"):
         return "Service"
     if any(k in s for k in ("DRILL", "CASED", "LICEN", "PERMIT", "LOCATION", "AUTHORI", "TEST", "COMPLET", "SPUD")) or \
-            first in ("DRL", "COMP", "LOC", "D&C"):
+            first in ("DRL", "DRIL", "CASE", "COMP", "LOC", "D&C"):
         return "Pre-production"
     return "Other"
 

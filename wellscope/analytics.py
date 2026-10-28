@@ -99,11 +99,18 @@ def prepare(wells: pd.DataFrame, prod: pd.DataFrame):
 
     # attributes from the well lists
     w = wells.dropna(subset=["uwi"]).drop_duplicates("uwi", keep="first").set_index("uwi")
+    # fall back to the same wellbore with another event sequence when the exact UWI isn't on the list
+    root = lambda u: u.rsplit("/", 1)[0] if isinstance(u, str) else u  # noqa: E731
+    w_root = w.assign(_r=[root(u) for u in w.index]).drop_duplicates("_r").set_index("_r")
     is_w = ent["entity_type"].eq("well")
+    ent_root = ent["entity_id"].map(root)
+    exact = ent["entity_id"].isin(w.index)
     for c in ("well_name", "licensee", "status_group", "fluid", "formation", "horizontal", "lat", "lon",
               "loc_precision", "total_depth_m", "spud_date"):
         ent[c] = pd.NA
-        ent.loc[is_w, c] = ent.loc[is_w, "entity_id"].map(w[c]) if c in w else pd.NA
+        if c in w:
+            vals = ent["entity_id"].map(w[c]).where(exact, ent_root.map(w_root[c]))
+            ent.loc[is_w, c] = vals[is_w]
     ent["lat"] = pd.to_numeric(ent["lat"], errors="coerce").astype(float)
     ent["lon"] = pd.to_numeric(ent["lon"], errors="coerce").astype(float)
     ent["loc_precision"] = ent["loc_precision"].astype("object")
@@ -321,7 +328,7 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, hor
     liab_op = liability(wells, wells["op_key"])
 
     def dump(path: Path, obj):
-        path.write_text(json.dumps(obj, separators=(",", ":"), allow_nan=False, default=_json_default))
+        path.write_text(json.dumps(_finite(obj), separators=(",", ":"), allow_nan=False, default=_json_default))
 
     # ---- areas
     cells = []
@@ -422,6 +429,19 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, hor
     }
     dump(out / "meta.json", meta)
     return meta
+
+
+def _finite(o):
+    """Replace NaN/inf anywhere in a nested structure with None so the JSON stays valid."""
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    if isinstance(o, (float, np.floating)):
+        return float(o) if math.isfinite(o) else None
+    if isinstance(o, np.integer):
+        return int(o)
+    return o
 
 
 def _json_default(o):

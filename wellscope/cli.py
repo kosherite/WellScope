@@ -37,16 +37,17 @@ def cmd_run(a) -> int:
     cache = Path(a.cache)
     months = month_list(a.end, a.months)
     wells, prods, used, problems = [], [], {}, {}
+    diag = __import__("collections").defaultdict(list)
     for prov in [p.strip().upper() for p in a.provinces.split(",") if p.strip()]:
         mod = ADAPTERS[prov]
         print(f"\n== {prov}: wells", flush=True)
         try:
             w = mod.wells(cache)
             print(f"  {len(w):,} wells, {w['lat'].notna().mean():.0%} located", flush=True)
-            notice(f"{prov} wells", f"{len(w):,} wells; located {w['lat'].notna().mean():.1%}; "
-                                    f"status {w['status_group'].value_counts().to_dict()}; sample {w['uwi'].head(3).tolist()}")
+            diag[prov].append(f"WELLS {len(w):,}; located {w['lat'].notna().mean():.1%}; "
+                              f"status {w['status_group'].value_counts().to_dict()}; sample {w['uwi'].head(3).tolist()}")
             other = w.loc[w["status_group"].eq("Other"), "status"].astype(str).value_counts().head(25).to_dict()
-            notice(f"{prov} unmapped statuses", f"{other}")
+            diag[prov].append(f"UNMAPPED STATUS {other}")
             wells.append(w)
         except Exception as e:  # keep going: one publisher's change should not sink the whole basin
             problems[f"{prov} wells"] = repr(e)
@@ -58,18 +59,19 @@ def cmd_run(a) -> int:
             print(f"  {len(p):,} entity-months, {p['entity_id'].nunique():,} entities", flush=True)
             wl = p[p["entity_type"] == "well"]["entity_id"]
             matched = wl.isin(set(wells[-1]["uwi"])).mean() if wells and wells[-1]["province"].iloc[0] == prov and len(wl) else None
-            notice(f"{prov} production", f"{len(p):,} entity-months; {p['entity_id'].nunique():,} entities; "
+            diag[prov].append(f"PRODUCTION {len(p):,} entity-months; {p['entity_id'].nunique():,} entities; "
                                          f"well-level {p['entity_type'].eq('well').mean():.1%}; months {p['month'].min():%Y-%m} to "
                                          f"{p['month'].max():%Y-%m}; well ids matched to well list {matched}; sample {wl.head(3).tolist()}")
             if matched is not None and matched < 0.98:
                 miss = wl[~wl.isin(set(wells[-1]["uwi"]))].drop_duplicates()
-                notice(f"{prov} unmatched well ids", f"{len(miss):,} ids, e.g. {miss.sample(min(15, len(miss)), random_state=1).tolist()}")
+                diag[prov].append(f"UNMATCHED {len(miss):,} ids, e.g. {miss.sample(min(15, len(miss)), random_state=1).tolist()}")
             prods.append(p)
         except Exception as e:
             problems[f"{prov} production"] = repr(e)
             notice(f"{prov} production FAILED", traceback.format_exc()[-1500:], "warning")
             traceback.print_exc()
         used[prov] = {"name": SOURCES[prov]["name"], "pages": SOURCES[prov]["pages"]}
+        notice(f"{prov} summary", " || ".join(diag[prov]))
     if not prods:
         print("No production loaded from any province", file=sys.stderr)
         notice("Build FAILED", f"No production loaded from any province. Problems: {problems}", "error")
