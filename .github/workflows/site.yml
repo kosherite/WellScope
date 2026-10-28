@@ -1,7 +1,8 @@
 name: Publish website changes
 
 # Front-end edits shouldn't need a multi-hour data rebuild: reuse the latest pipeline's data,
-# or the committed pilot snapshot if the pipeline hasn't succeeded yet.
+# or the committed pilot snapshot if the pipeline hasn't succeeded yet. Any successful pipeline run
+# counts, including test runs on the pipeline-test branch.
 on:
   push:
     branches: [main]
