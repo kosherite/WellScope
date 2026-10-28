@@ -353,8 +353,9 @@ async function mapView(areaId) {
       <div class="mapwrap"><div id="map" role="region" aria-label="Map of production areas"></div><div class="panel" id="panel"></div></div>${footer()}`;
     MAP = L.map("map", { preferCanvas: true, zoomSnap: 0.5 });
     const dark = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light";
-    L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
-      maxZoom: 14, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' }).addTo(MAP);
+    // Esri's grey canvas basemaps need no API key; attribution is required.
+    const base = `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${dark ? "World_Dark_Gray_Base" : "World_Light_Gray_Base"}/MapServer/tile/{z}/{y}/{x}`;
+    L.tileLayer(base, { maxZoom: 16, attribution: "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors" }).addTo(MAP);
     const b = CELLS.filter((c) => c.boe > 0);
     const lats = b.flatMap((c) => [c.b[0], c.b[2]]), lons = b.flatMap((c) => [c.b[1], c.b[3]]);
     MAP.fitBounds([[Math.min(...lats), Math.min(...lons)], [Math.max(...lats), Math.max(...lons)]], { padding: [20, 20] });
