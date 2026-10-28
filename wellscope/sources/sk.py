@@ -1,8 +1,8 @@
 """Saskatchewan: Petrinex Saskatchewan public data (well infrastructure + volumes).
 
-The Saskatchewan government's own well and production bundles are paid subscriptions, so this uses the
-free Petrinex extracts. Well coordinates are not in those extracts, so wells are placed from their DLS
-UWI (approximate, flagged as such).
+Column names below were confirmed from the live Well Infrastructure download (probe run, Oct 2026).
+The province's own well and production bundles are paid, so this uses the free Petrinex extracts.
+Coordinates are not published there; wells are placed from their DLS location (approximate).
 """
 from __future__ import annotations
 
@@ -10,28 +10,45 @@ from pathlib import Path
 
 import pandas as pd
 
-from .. import fetch
 from ..schema import clean_str, finish_wells
 from . import petrinex
 
 
+def _col(df: pd.DataFrame, name: str):
+    return df[name] if name in df.columns else pd.NA
+
+
 def wells(cache: Path) -> pd.DataFrame:
     df = petrinex.infra("SK", "Well Infrastructure", cache)
-    p = lambda *a, req=False: fetch.pick(df, *a, required=req)  # noqa: E731
-    uwi = p("Well ID", "WellID", "UWI", "Well Identifier", req=True)
+    if "WellID" not in df.columns:
+        raise KeyError(f"SK Well Infrastructure has no WellID column; columns are {list(df.columns)}")
+    mode, typ = clean_str(_col(df, "WellStatusMode")), clean_str(_col(df, "WellStatusType"))
+    parts = ["WellLocationException", "WellLegalSubdivision", "WellSection", "WellTownship", "WellRange", "WellMeridian",
+             "WellEventSequence"]
+    uwi = df["WellID"]
+    if all(c in df.columns for c in parts):
+        n = {c: pd.to_numeric(df[c], errors="coerce") for c in parts[1:]}
+        le = df["WellLocationException"].astype(str).str.strip().str[-2:].str.zfill(2)
+        built = (le + "/" + n["WellLegalSubdivision"].astype("Int64").astype(str).str.zfill(2) + "-"
+                 + n["WellSection"].astype("Int64").astype(str).str.zfill(2) + "-"
+                 + n["WellTownship"].astype("Int64").astype(str).str.zfill(3) + "-"
+                 + n["WellRange"].astype("Int64").astype(str).str.zfill(2) + "W"
+                 + n["WellMeridian"].astype("Int64").astype(str) + "/"
+                 + n["WellEventSequence"].astype("Int64").astype(str).str[-1:])
+        ok = n["WellSection"].notna() & n["WellTownship"].notna() & n["WellRange"].notna()
+        uwi = built.where(ok, df["WellID"])
     out = pd.DataFrame({
-        "uwi": df[uwi],
-        "well_name": clean_str(df[p("Well Name")]) if p("Well Name") else pd.NA,
-        "licensee": clean_str(df[p("Licensee Name", "Licensee", "Operator Name")]) if p("Licensee Name", "Licensee", "Operator Name") else pd.NA,
-        "status": clean_str(df[p("Well Status", "Status Description", "Status")]) if p("Well Status", "Status Description", "Status") else pd.NA,
-        "status_date": df[p("Well Status Date", "Status Date")] if p("Well Status Date", "Status Date") else pd.NA,
-        "fluid": clean_str(df[p("Well Fluid", "Fluid")]) if p("Well Fluid", "Fluid") else pd.NA,
-        "field": clean_str(df[p("Field Name", "Field")]) if p("Field Name", "Field") else pd.NA,
-        "formation": clean_str(df[p("Pool Name", "Horizon", "Pool")]) if p("Pool Name", "Horizon", "Pool") else pd.NA,
-        "spud_date": df[p("Spud Date")] if p("Spud Date") else pd.NA,
-        "total_depth_m": df[p("Final Total Depth", "Total Depth")] if p("Final Total Depth", "Total Depth") else pd.NA,
-        "horizontal": df[p("Horizontal Drill", "Horizontal")].astype("string").str.upper().isin(["Y", "YES", "TRUE"])
-        if p("Horizontal Drill", "Horizontal") else False,
+        "uwi": uwi,
+        "well_name": clean_str(_col(df, "WellName")),
+        "licensee": clean_str(_col(df, "LicenseeName")),
+        "status": mode.where(mode.notna(), typ),
+        "status_date": _col(df, "WellStatusDate"),
+        "fluid": clean_str(_col(df, "WellStatusFluid")),
+        "field": clean_str(_col(df, "FieldName")),
+        "formation": clean_str(_col(df, "PoolDepositName")),
+        "spud_date": _col(df, "SpudDate"),
+        "total_depth_m": _col(df, "FinalTotalDepth"),
+        "horizontal": clean_str(_col(df, "HorizontalDrill")).str.upper().isin(["Y", "YES", "TRUE"]).fillna(False),
     })
     return finish_wells(out, "SK")
 

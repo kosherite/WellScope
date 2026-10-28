@@ -136,3 +136,13 @@ def test_ab_st37_reader(tmp_path):
     assert list(w["status_group"]) == ["Producing", "Inactive"]
     assert list(w["horizontal"]) == [True, False]
     assert w["loc_precision"].eq("surveyed").all() and w["lat"].iloc[0] == pytest.approx(54.1)
+
+
+def test_mb_wide_months():
+    from wellscope.sources import mb
+    df = pd.DataFrame({"UWI": ["100.14-14-009-29W1.00"] * 2, "NAME": ["TUNDRA OIL & GAS LIMITED"] * 2,
+                       "FLUID CODE": ["OIL", "WATER"], "YEAR": ["2026", "2026"],
+                       **{m: ["10", "40"] if m in ("JAN", "FEB") else ["0", "0"] for m in mb.MONTHS}})
+    out = finish_production(mb._standardize(df), "MB")
+    assert len(out) == 2 and out.entity_id.iloc[0] == "00/14-14-009-29W1/0"
+    assert out.oil_m3.tolist() == [10, 10] and out.water_m3.tolist() == [40, 40]

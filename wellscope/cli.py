@@ -42,21 +42,31 @@ def cmd_run(a) -> int:
         try:
             w = mod.wells(cache)
             print(f"  {len(w):,} wells, {w['lat'].notna().mean():.0%} located", flush=True)
+            notice(f"{prov} wells", f"{len(w):,} wells; located {w['lat'].notna().mean():.1%}; "
+                                    f"status {w['status_group'].value_counts().to_dict()}; sample {w['uwi'].head(3).tolist()}")
             wells.append(w)
         except Exception as e:  # keep going: one publisher's change should not sink the whole basin
             problems[f"{prov} wells"] = repr(e)
+            notice(f"{prov} wells FAILED", traceback.format_exc()[-1500:], "warning")
             traceback.print_exc()
         print(f"== {prov}: production", flush=True)
         try:
             p = mod.production(cache, months)
             print(f"  {len(p):,} entity-months, {p['entity_id'].nunique():,} entities", flush=True)
+            wl = p[p["entity_type"] == "well"]["entity_id"]
+            matched = wl.isin(set(wells[-1]["uwi"])).mean() if wells and wells[-1]["province"].iloc[0] == prov and len(wl) else None
+            notice(f"{prov} production", f"{len(p):,} entity-months; {p['entity_id'].nunique():,} entities; "
+                                         f"well-level {p['entity_type'].eq('well').mean():.1%}; months {p['month'].min():%Y-%m} to "
+                                         f"{p['month'].max():%Y-%m}; well ids matched to well list {matched}; sample {wl.head(3).tolist()}")
             prods.append(p)
         except Exception as e:
             problems[f"{prov} production"] = repr(e)
+            notice(f"{prov} production FAILED", traceback.format_exc()[-1500:], "warning")
             traceback.print_exc()
         used[prov] = {"name": SOURCES[prov]["name"], "pages": SOURCES[prov]["pages"]}
     if not prods:
         print("No production loaded from any province", file=sys.stderr)
+        notice("Build FAILED", f"No production loaded from any province. Problems: {problems}", "error")
         return 1
     W = pd.concat(wells, ignore_index=True) if wells else pd.DataFrame(columns=analytics.__dict__.get("WELL_COLS", []))
     P = pd.concat(prods, ignore_index=True)
@@ -65,7 +75,11 @@ def cmd_run(a) -> int:
         W.to_parquet(Path(a.parquet) / "wells.parquet", index=False)
         P.to_parquet(Path(a.parquet) / "production.parquet", index=False)
     print("\n== analytics", flush=True)
-    meta = analytics.build(W, P, Path(a.out), used)
+    try:
+        meta = analytics.build(W, P, Path(a.out), used)
+    except Exception:
+        notice("Analytics FAILED", traceback.format_exc()[-2500:], "error")
+        raise
     meta["problems"] = problems
     (Path(a.out) / "meta.json").write_text(__import__("json").dumps(meta, default=str))
     print(f"done: {meta['counts']}  problems: {list(problems) or 'none'}")
@@ -87,8 +101,7 @@ def cmd_probe(a) -> int:
             __import__("wellscope.sources.petrinex", fromlist=["x"]).month_file("SK", months[0], cache).read_bytes()), nrows=5),
         "SK well infrastructure": lambda: sk.petrinex.infra("SK", "Well Infrastructure", cache).head(5),
         "BC well index": lambda: fetch.read_table(fetch.download(SOURCES["BC"]["well_index"], cache / "BC" / "well_index.csv").read_bytes(), nrows=5),
-        "BC production": lambda: fetch.read_table(fetch.unzip_bytes(
-            fetch.download(SOURCES["BC"]["production"], cache / "BC" / "prod_csv.zip").read_bytes(), ".csv"), nrows=5),
+        "BC production": lambda: (notice("BC production files", bc.describe(cache)), pd.DataFrame({"see": ["notice"]}))[1],
         "MB uwi list": lambda: pd.read_excel(fetch.download(SOURCES["MB"]["uwi_list"], cache / "MB" / "uwi_weekly.xlsx"), nrows=5),
         "MB production": lambda: next(mb._sheets(fetch.download(SOURCES["MB"]["production"][0], cache / "MB" / "wmp_0.zip")))[1].head(5),
     }

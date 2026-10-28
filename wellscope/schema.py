@@ -28,6 +28,7 @@ def canon_uwi(text) -> str | None:
     if text is None or (isinstance(text, float) and np.isnan(text)):
         return None
     s = re.sub(r"\s+", "", str(text)).upper()
+    s = re.sub(r"^(\d{3})\.(.*)\.(\d{1,2})$", r"\1/\2/\3", s)
     m = _DLS_COMPACT.match(s)
     if m:
         _, le, lsd, sec, twp, rge, mer, es = m.groups()
@@ -48,19 +49,23 @@ def canon_uwi(text) -> str | None:
 
 
 def status_group(raw) -> str:
-    """Collapse every province's status vocabulary into five groups analysts actually filter by."""
-    s = str(raw or "").upper()
-    if not s or s in ("NAN", "NONE", "NOT APPLICABLE"):
+    """Collapse every province's status vocabulary (words and abbreviations) into the groups analysts filter by."""
+    s = str(raw or "").upper().strip()
+    if not s or s in ("NAN", "NONE", "NOT APPLICABLE", "<NA>"):
         return "Other"
-    if "ABAND" in s or "JUNK" in s or "RECLAIM" in s or s.startswith("ABD") or "CERTIFICATE" in s:
+    w = s.replace("-", " ").split()
+    first = w[0] if w else ""
+    if "ABAND" in s or "JUNK" in s or "RECLAIM" in s or first in ("ABD", "ABAN", "AB", "JNK", "RAB") or "CERTIFICATE" in s:
         return "Abandoned"
-    if "SUSP" in s or "SHUT" in s or "INACTIVE" in s or "CLOSED" in s:
+    if "SUSP" in s or "SHUT" in s or "INACTIVE" in s or "CLOSED" in s or first in ("SI", "CAPP", "CAP", "CAPPED", "SIP"):
         return "Inactive"
-    if any(k in s for k in ("PUMP", "FLOW", "GAS LIFT", "PRODUC", "ACTIVE", "OPERATING", "PLUNGER", "PROD")):
+    if any(k in s for k in ("PUMP", "FLOW", "GAS LIFT", "PRODUC", "ACTIVE", "OPERATING", "PLUNGER")) or \
+            first in ("PMP", "FLW", "PROD", "GLIFT", "PRD", "OIL", "GAS"):
         return "Producing"
-    if any(k in s for k in ("INJ", "DISP", "STORAGE", "OBSERV", "SOURCE")):
+    if any(k in s for k in ("INJ", "DISP", "STORAGE", "OBSERV", "SOURCE")) or first in ("WINJ", "GINJ", "DSPL", "OBS"):
         return "Service"
-    if any(k in s for k in ("DRILL", "CASED", "LICEN", "PERMIT", "LOCATION", "AUTHORI", "TEST", "COMPLET", "SPUD")):
+    if any(k in s for k in ("DRILL", "CASED", "LICEN", "PERMIT", "LOCATION", "AUTHORI", "TEST", "COMPLET", "SPUD")) or \
+            first in ("DRL", "COMP", "LOC", "D&C"):
         return "Pre-production"
     return "Other"
 
