@@ -98,7 +98,7 @@ def prepare(wells: pd.DataFrame, prod: pd.DataFrame):
     ent["first_month"] = [months[i].strftime("%Y-%m") if i >= 0 else None for i in ent["onset"]]
 
     # attributes from the well lists
-    w = wells.set_index("uwi")
+    w = wells.dropna(subset=["uwi"]).drop_duplicates("uwi", keep="first").set_index("uwi")
     is_w = ent["entity_type"].eq("well")
     for c in ("well_name", "licensee", "status_group", "fluid", "formation", "horizontal", "lat", "lon",
               "loc_precision", "total_depth_m", "spud_date"):
