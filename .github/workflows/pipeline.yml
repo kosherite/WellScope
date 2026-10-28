@@ -51,13 +51,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/tippecanoe
-          key: tippecanoe-2.82.0-${{ runner.os }}
+          key: tippecanoe-4f26211-${{ runner.os }}
 
       - name: Build tippecanoe (makes the map tiles)
         if: steps.tc.outputs.cache-hit != 'true'
         run: |
           sudo apt-get install -y -q libsqlite3-dev zlib1g-dev
-          git clone -q --depth 1 --branch 2.82.0 https://github.com/felt/tippecanoe.git /tmp/tc
+          # tippecanoe 2.82.0 (felt/tippecanoe has no tag for it, so pin the commit that was tested)
+          git init -q /tmp/tc && git -C /tmp/tc fetch -q --depth 1 https://github.com/felt/tippecanoe.git 4f2621186acfec33b63ddf636f665623c0fef2dd
+          git -C /tmp/tc checkout -q FETCH_HEAD
           make -C /tmp/tc -j4 >/dev/null
           mkdir -p ~/tippecanoe && cp /tmp/tc/tippecanoe ~/tippecanoe/
 
