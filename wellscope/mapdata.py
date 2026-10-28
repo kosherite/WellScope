@@ -61,7 +61,7 @@ def display_uwi(c: str | None) -> str | None:
     return f"{survey}{le}/{mid}/0{es}"
 
 
-def symbol(group: str, fluid: str, ever_produced: bool) -> str:
+def symbol(group: str, fluid: str, ever_produced: bool, text: str = "") -> str:
     oilish = fluid in ("Oil", "Bitumen")
     gasish = fluid == "Gas"
     if group == "Producing":
@@ -69,12 +69,44 @@ def symbol(group: str, fluid: str, ever_produced: bool) -> str:
     if group == "Inactive":
         return "gas_susp" if gasish else "oil_susp" if oilish else "other"
     if group == "Abandoned":
-        return "aband" if (oilish or gasish or ever_produced) else "dry"
+        t = str(text or "").upper()
+        # Regulators rarely say "dry" outright; most abandoned wells list no fluid, so default to plain abandoned.
+        return "dry" if ("DRY" in t or "D&A" in t or "D & A" in t) else "aband"
     if group == "Service":
         return "service"
     if group == "Pre-production":
         return "pre"
     return "other"
+
+
+def grid_offsets(w: pd.DataFrame) -> tuple[dict, dict | None]:
+    """Median (dlat, dlon) per DLS township between surveyed surface coordinates and the survey formula.
+
+    The formula ignores road allowances and correction lines, so it drifts by up to a few km; shifting each
+    township by its measured offset brings the drawn grid and formula-placed wells back over the real LSDs.
+    """
+    s = w[w["loc_precision"].eq("surveyed") & w["surface_loc"].notna()][["surface_loc", "lat", "lon"]]
+    if s.empty:
+        return {}, None
+    rows = []
+    for loc, la, lo in s.itertuples(index=False):
+        d = locate.parse_dls(loc)
+        if not d or not d.lsd:
+            continue
+        fy, fx = locate.dls_to_latlon(d)
+        rows.append((f"W{d.mer}-{d.twp:03d}-{d.rge:02d}", la - fy, lo - fx, la))
+    df = pd.DataFrame(rows, columns=["k", "dy", "dx", "lat"])
+    df = df[(df["dy"].abs() < 0.1) & (df["dx"].abs() < 0.15)]           # drop misfiled locations
+    g = df.groupby("k").agg(dy=("dy", "median"), dx=("dx", "median"), n=("dy", "size"))
+    g = g[g["n"] >= 3]
+    offsets = {k: [round(float(r.dy), 5), round(float(r.dx), 5)] for k, r in g.iterrows()}
+    # residual error after the correction, on the same wells
+    m = df.join(g[["dy", "dx"]], on="k", rsuffix="_t").dropna()
+    before = np.hypot(m["dy"] * 111.2, m["dx"] * 111.32 * np.cos(np.radians(m["lat"])))
+    after = np.hypot((m["dy"] - m["dy_t"]) * 111.2, (m["dx"] - m["dx_t"]) * 111.32 * np.cos(np.radians(m["lat"])))
+    check = {"wells": int(len(m)), "townships": len(offsets), "median_km_before": round(float(before.median()), 2),
+             "median_km_after": round(float(after.median()), 2), "p90_km_after": round(float(after.quantile(0.9)), 2)}
+    return offsets, check
 
 
 def _clean(v):
@@ -137,12 +169,29 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
         w[c] = pd.to_numeric(w[c], errors="coerce").astype(float)
     w = w.dropna(subset=["lat", "lon"])
     w["licensee"] = w["licensee"].fillna(w["uwi"].map(prod_op))
-    w["sym"] = [symbol(g, f, u in produced) for g, f, u in zip(w["status_group"], w["fluid"], w["uwi"])]
+    w["sym"] = [symbol(g, f, u in produced, t) for g, f, u, t in zip(w["status_group"], w["fluid"], w["uwi"], w["status_text"])]
     w["boe"] = w["uwi"].map(cur_boe).fillna(0)
     w["key"] = w["uwi"].map(shard_key)
     w["disp"] = w["uwi"].map(display_uwi)
 
-    # ---- operators
+    # ---- grid calibration: per-township offset between the survey formula and surveyed AER surface locations
+    offsets, check = grid_offsets(w)
+    (out / "grid_offsets.json").write_text(json.dumps(offsets, separators=(",", ":")))
+    formula = w["loc_precision"].astype(str).str.startswith("dls")
+    if offsets and formula.any():
+        tk = w.loc[formula, "uwi"].map(lambda u: (shard_key(u) or "")).map(offsets.get)
+        has = tk.notna()
+        idx = tk[has].index
+        w.loc[idx, "lat"] = w.loc[idx, "lat"] + [o[0] for o in tk[has]]
+        w.loc[idx, "lon"] = w.loc[idx, "lon"] + [o[1] for o in tk[has]]
+
+    # ---- operators: merge spellings that differ only in case or suffix (Tourmaline Oil Corp. / TOURMALINE OIL CORP.)
+    from .analytics import nice_name, op_key
+    raw = w["licensee"].fillna("Unknown").astype(str).str.strip()
+    keys = raw.map(lambda x: op_key(x) or x.upper())
+    pretty = (pd.DataFrame({"k": keys, "r": raw.map(nice_name)}).groupby("k")["r"]
+              .agg(lambda s: s[~s.str.isupper()].mode().iloc[0] if (~s.str.isupper()).any() else s.mode().iloc[0]))
+    w["licensee"] = keys.map(pretty)
     ops = (w.assign(n=w["licensee"].fillna("Unknown").astype(str).str.strip())
              .groupby("n").agg(wells=("uwi", "size"), producing=("boe", lambda s: int((s > 0).sum())),
                                s=("lat", "min"), n_=("lat", "max"), wst=("lon", "min"), e=("lon", "max"),
@@ -212,7 +261,7 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
     for sh, d in lic.items():
         (out / "lic" / f"{sh}.json").write_text(json.dumps(d, separators=(",", ":")))
 
-    counts = {"wells": int(len(w)), "producing": int((w["boe"] > 0).sum()), "laterals": int(len(hz)),
+    counts = {"grid_check": check, "wells": int(len(w)), "producing": int((w["boe"] > 0).sum()), "laterals": int(len(hz)),
               "operators": int(len(ops)), "shards": n_shards, "not_on_lists": len(missing),
               "by_province": {k: int(v) for k, v in w["province"].value_counts().items()},
               "by_symbol": {k: int(v) for k, v in w["sym"].value_counts().items()}}

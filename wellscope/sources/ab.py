@@ -62,6 +62,7 @@ def wells(cache: Path) -> pd.DataFrame:
         "status": mode.where(mode.notna(), typ),
         "status_text": text.where(text != "", pd.NA),
         "bh_lat": df["BH_Latitude"],
+        "surface_loc": clean_str(df["Licence_Surface_Location_Label"]),
         "bh_lon": df["BH_Longitude"],
         "status_date": df["Licence_Status_Date"],
         "fluid": clean_str(df["Status_Fluid"]),

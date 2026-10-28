@@ -112,7 +112,7 @@ def tiles(work: Path, out: Path) -> None:
     if not exe:
         print("  tippecanoe not found: wells.pmtiles not built (install it, or set TIPPECANOE)", flush=True)
         return
-    cmd = [exe, "-o", str(out / "wells.pmtiles"), "--force", "-q", "-P", "-Z3", "-z12", "--drop-densest-as-needed",
+    cmd = [exe, "-o", str(out / "wells.pmtiles"), "--force", "-q", "-P", "-Z3", "-z12", "-r1", "--drop-densest-as-needed", "--maximum-tile-bytes=1500000",
            "-n", "WellScope wells", "-A", "AER, Petrinex, BCER, Manitoba Petroleum Branch",
            "-L", f"dots:{work / 'dots.geojsonl'}", "-L", f"wells:{work / 'wells.geojsonl'}",
            "-L", f"laterals:{work / 'laterals.geojsonl'}"]

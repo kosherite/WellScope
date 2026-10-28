@@ -5,6 +5,10 @@ const LOC = (() => {
   const MER = { 1: 97.4579, 2: 102.0, 3: 106.0, 4: 110.0, 5: 114.0, 6: 118.0 };
   const TWP_KM = 9.656064, SEC_KM = TWP_KM / 6, KM_LAT = 111.2, LAT0 = 49.0;
   const kmLon = (lat) => 111.32 * Math.cos(lat * Math.PI / 180);
+  // Per-township corrections measured from surveyed AER wells (grid_offsets.json): key "W5-060-12" -> [dlat, dlon]
+  let OFF = {};
+  const offKey = (twp, rge, mer) => `W${mer}-${String(twp).padStart(3, "0")}-${String(rge).padStart(2, "0")}`;
+  const off = (twp, rge, mer) => OFF[offKey(twp, rge, mer)] || [0, 0];
   const snake = (i, n) => { const r = Math.floor(i / n); return [r, r % 2 === 0 ? i % n : n - 1 - (i % n)]; };
 
   // ---- DLS
@@ -14,8 +18,13 @@ const LOC = (() => {
     if (lsd) { const [lr, lc] = snake(lsd - 1, 4); n = (twp - 1) * TWP_KM + sr * SEC_KM + (lr + 0.5) * SEC_KM / 4; w = (rge - 1) * TWP_KM + sc * SEC_KM + (lc + 0.5) * SEC_KM / 4; }
     else if (sec) { n = (twp - 1) * TWP_KM + (sr + 0.5) * SEC_KM; w = (rge - 1) * TWP_KM + (sc + 0.5) * SEC_KM; }
     else { n = (twp - 0.5) * TWP_KM; w = (rge - 0.5) * TWP_KM; }
-    const lat = LAT0 + n / KM_LAT;
-    return [lat, -(MER[mer] + w / kmLon(lat))];
+    const lat = LAT0 + n / KM_LAT, o = off(twp, rge, mer);
+    return [lat + o[0], -(MER[mer] + w / kmLon(lat)) + o[1]];
+  }
+  /** A point inside township (twp, rge, mer) at fractions (fn north, fw west) of its extent, corrected. -> [lon, lat] */
+  function townshipPoint(twp, rge, mer, fn, fw) {
+    const lat = LAT0 + (twp - 1 + fn) * TWP_KM / KM_LAT, o = off(twp, rge, mer);
+    return [-(MER[mer] + (rge - 1 + fw) * TWP_KM / kmLon(lat)) + o[1], lat + o[0]];
   }
   /** Corner of a township/range grid point: north km and west km from the meridian -> [lon, lat]. */
   function gridPoint(mer, northKm, westKm) {
@@ -105,5 +114,6 @@ const LOC = (() => {
     m = canon && canon.match(/^[0-9A-Z]{2}\/[A-D]-\d{3}-[A-L]\/(\d{3})-([A-P])-(\d{2})\/\d$/);
     return m ? `N${m[1]}${m[2]}${m[3]}` : null;
   }
-  return { parse, display, keyOf, dlsToLatLon, gridPoint, fromLatLon, MER, TWP_KM, SEC_KM };
+  return { parse, display, keyOf, dlsToLatLon, gridPoint, townshipPoint, fromLatLon, MER, TWP_KM, SEC_KM,
+           setOffsets: (o) => { OFF = o || {}; }, hasOffset: (twp, rge, mer) => !!OFF[offKey(twp, rge, mer)] };
 })();

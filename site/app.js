@@ -122,47 +122,41 @@ function sectionCell(sec) { const r = Math.floor((sec - 1) / 6), c = r % 2 === 0
 function updateGrid() {
   const src = map.getSource("grid"), lab = map.getSource("grid-l"); if (!src || !lab) return;
   const z = map.getZoom(), on = $("#gridT").checked && z >= 7.5;
-  const feats = [];
+  const lines = [], labels = [];
   if (on) {
-    const b = map.getBounds(), S = Math.max(49, b.getSouth()), N = Math.min(60.5, b.getNorth());
-    const T = LOC.TWP_KM, step = 0.02;
-    for (let m = 1; m <= 6; m++) {
-      const east = -LOC.MER[m], westLimit = m < 6 ? -LOC.MER[m + 1] : -122.5;
-      if (b.getWest() > east || b.getEast() < westLimit || S >= N) continue;
+    const b = map.getBounds(), S = Math.max(49, b.getSouth() - 0.1), N = Math.min(60.5, b.getNorth() + 0.1);
+    const T = LOC.TWP_KM, fine = z >= 13.5 ? 24 : z >= 11 ? 6 : 1;      // lines per township edge: township, sections, LSDs
+    const seg = (p, q, w) => lines.push({ type: "Feature", properties: { w }, geometry: { type: "LineString", coordinates: [p, q] } });
+    const label = (pt, l, k) => labels.push({ type: "Feature", properties: { l, k }, geometry: { type: "Point", coordinates: pt } });
+    let budget = 3000;                                             // townships drawn at most (keeps panning smooth)
+    for (let m = 1; m <= 6 && budget > 0; m++) {
+      const east = -LOC.MER[m], westLimit = m < 6 ? -LOC.MER[m + 1] : -122.6;
+      if (b.getWest() > east + 0.2 || b.getEast() < westLimit - 0.2 || S >= N) continue;
       const t0 = Math.max(1, Math.floor((S - 49) * 111.2 / T) + 1), t1 = Math.floor((N - 49) * 111.2 / T) + 1;
-      const inBand = ([lon]) => lon <= east + 1e-9 && lon >= westLimit - 1e-9;
-      const westOf = (lat) => (-b.getEast() > LOC.MER[m] ? (-b.getEast() - LOC.MER[m]) * 111.32 * Math.cos(lat * Math.PI / 180) : 0);
-      const midLat = (S + N) / 2;
-      const r0 = Math.max(1, Math.floor(westOf(midLat) / T)), r1 = Math.min(34, Math.ceil(((-b.getWest()) - LOC.MER[m]) * 111.32 * Math.cos(midLat * Math.PI / 180) / T) + 1);
-      if (r1 < r0 || (t1 - t0) * (r1 - r0) > 2500) continue;
-      const fine = z >= 11 ? (z >= 13.5 ? 24 : 6) : 1;          // subdivisions per township edge: 1, sections (6) or LSDs (24)
-      // north-south lines (range and section/LSD boundaries)
-      for (let r = r0 - 1; r <= r1; r++) for (let k = 0; k < fine; k++) {
-        const wkm = (r * fine + k) * T / fine, pts = [];
-        for (let nkm = (t0 - 1) * T; nkm <= t1 * T + 1e-6; nkm += step * 111.2) pts.push(LOC.gridPoint(m, nkm, wkm));
-        const q = pts.filter(inBand); if (q.length > 1) feats.push({ type: "Feature", properties: { w: k === 0 ? 2 : fine === 24 && k % 4 ? 0 : 1 }, geometry: { type: "LineString", coordinates: q } });
-      }
-      // east-west lines (township and section/LSD boundaries)
-      for (let t = t0 - 1; t <= t1; t++) for (let k = 0; k < fine; k++) {
-        const nkm = (t * fine + k) * T / fine, pts = [];
-        for (let r = r0 - 1; r <= r1; r++) for (let j = 0; j < 4; j++) pts.push(LOC.gridPoint(m, nkm, (r + j / 4) * T));
-        const q = pts.filter(inBand); if (q.length > 1) feats.push({ type: "Feature", properties: { w: k === 0 ? 2 : fine === 24 && k % 4 ? 0 : 1 }, geometry: { type: "LineString", coordinates: q } });
-      }
-      // labels
-      for (let t = t0; t <= t1; t++) for (let r = r0; r <= r1; r++) {
-        if (z < 11.5) {
-          const [lat, lon] = LOC.dlsToLatLon(null, null, t, r, m);
-          if (lon <= east && lon >= westLimit) feats.push({ type: "Feature", properties: { l: `${String(t).padStart(3, "0")}-${String(r).padStart(2, "0")}W${m}`, k: "t" }, geometry: { type: "Point", coordinates: [lon, lat] } });
-        } else for (let sec = 1; sec <= 36; sec++) {
-          if (z < 14.2) { const [lat, lon] = LOC.dlsToLatLon(null, sec, t, r, m); feats.push({ type: "Feature", properties: { l: String(sec), k: "s" }, geometry: { type: "Point", coordinates: [lon, lat] } }); }
-          else for (let lsd = 1; lsd <= 16; lsd++) { const [lat, lon] = LOC.dlsToLatLon(lsd, sec, t, r, m); feats.push({ type: "Feature", properties: { l: `${lsd}-${sec}`, k: "l" }, geometry: { type: "Point", coordinates: [lon, lat] } }); }
+      const kl = 111.32 * Math.cos(((S + N) / 2) * Math.PI / 180);
+      const r0 = Math.max(1, Math.floor((-Math.min(b.getEast(), east) - LOC.MER[m]) * kl / T)), r1 = Math.min(34, Math.ceil((-Math.max(b.getWest(), westLimit) - LOC.MER[m]) * kl / T) + 1);
+      for (let t = t0; t <= t1 && budget > 0; t++) for (let r = r0; r <= r1 && budget > 0; r++) {
+        const P = (fn, fw) => LOC.townshipPoint(t, r, m, fn, fw);
+        const c = P(0.5, 0.5);
+        if (c[0] < westLimit || c[0] > east) continue;
+        budget--;
+        for (let k = 0; k <= fine; k++) {
+          const f = k / fine, w = k === 0 || k === fine ? 2 : fine === 24 && k % 4 ? 0 : 1;
+          if (k === fine) continue;                                 // the neighbour draws the shared north/west edge
+          seg(P(f, 0), P(f, 1), w);                                  // east-west line
+          seg(P(0, f), P(1, f), w);                                  // north-south line
+        }
+        if (z < 11.5) label(c, `${String(t).padStart(3, "0")}-${String(r).padStart(2, "0")}W${m}`, "t");
+        else for (let sec = 1; sec <= 36; sec++) {
+          if (z < 14.2) label(LOC.dlsToLatLon(null, sec, t, r, m).reverse(), String(sec), "s");
+          else for (let lsd = 1; lsd <= 16; lsd++) label(LOC.dlsToLatLon(lsd, sec, t, r, m).reverse(), `${lsd}-${sec}`, "l");
         }
       }
     }
   }
   // lines and labels live in separate sources so a font that fails to load can't take the lines with it
-  src.setData({ type: "FeatureCollection", features: feats.filter((f) => f.geometry.type === "LineString") });
-  lab.setData({ type: "FeatureCollection", features: feats.filter((f) => f.geometry.type === "Point") });
+  src.setData({ type: "FeatureCollection", features: lines });
+  lab.setData({ type: "FeatureCollection", features: labels });
 }
 function addGrid() {
   map.addSource("grid", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -375,7 +369,7 @@ function readHash() {
 
 // ------------------------------------------------------------------ start
 (async function start() {
-  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("operators.json")]); }
+  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("operators.json")]); LOC.setOffsets(await getJSON("grid_offsets.json").catch(() => ({}))); }
   catch (e) { document.body.insertAdjacentHTML("beforeend", `<div class="modal"><div class="sheet"><h2>No map data yet</h2><p>Run the pipeline (<span class="mono">python -m wellscope run</span>, or the "Build basin data" action) to create <span class="mono">site/data</span>.</p></div></div>`); return; }
   if (typeof maplibregl === "undefined" || typeof pmtiles === "undefined") { toast("The map library couldn't load. Check your connection and reload."); return; }
   const protocol = new pmtiles.Protocol();

@@ -181,5 +181,18 @@ def test_mapdata_exports(tmp_path):
     assert rec["d"] == "100/01-01-060-12W5/00" and rec["s"] == "oil" and len(rec["pr"][0]) == len(shard["months"])
     lic = json.loads((tmp_path / "site" / "lic" / "00.json").read_text())
     assert lic["1000"] == [["AB", W.uwi.iloc[0]]]
-    assert mapdata.symbol("Abandoned", "Other", False) == "dry" and mapdata.symbol("Inactive", "Gas", True) == "gas_susp"
+    assert mapdata.symbol("Abandoned", "Other", False) == "aband" and mapdata.symbol("Abandoned", "Other", False, "D&A") == "dry"
+    assert mapdata.symbol("Inactive", "Gas", True) == "gas_susp"
     assert mapdata.shard_key("00/D-080-H/092-G-03/0") == "N092G03"
+
+
+def test_grid_offsets_recover_a_known_shift():
+    from wellscope import locate, mapdata
+    rows = []
+    for lsd in range(1, 17):
+        loc = f"{lsd:02d}-09-060-03W5"
+        y, x = locate.dls_to_latlon(locate.parse_dls(loc))
+        rows.append(dict(uwi=f"00/{loc}/0", surface_loc=loc, lat=y + 0.02, lon=x - 0.03, loc_precision="surveyed"))
+    off, check = mapdata.grid_offsets(pd.DataFrame(rows))
+    assert off["W5-060-03"] == [0.02, -0.03]
+    assert check["median_km_after"] < 0.01 < check["median_km_before"]

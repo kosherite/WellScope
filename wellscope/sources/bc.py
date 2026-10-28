@@ -29,13 +29,19 @@ def wells(cache: Path) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     if "UWI" not in df.columns:
         raise KeyError(f"BC well index has no UWI column; columns are {list(df.columns)}")
+    name = clean_str(_col(df, "Well Name")).str.replace(r"\s+", " ", regex=True)
+    mode, fluid, oper = clean_str(_col(df, "Mode")), clean_str(_col(df, "Fluid")), clean_str(_col(df, "Oper"))
+    # "Oper" is the operation type (PROD, INJ, DISP, UND...), not the operator. Injection or disposal wells are service wells.
+    service = oper.fillna("").str.upper().str.contains("INJ|DISP|STOR|OBS|SRC|SOURCE", regex=True)
     out = pd.DataFrame({
         "uwi": clean_str(df["UWI"]),
-        "well_name": clean_str(_col(df, "Well Name")).str.replace(r"\s+", " ", regex=True),
+        "well_name": name,
         "licence": clean_str(_col(df, "WA")).str.lstrip("0"),      # BC well authorization number
-        "licensee": clean_str(_col(df, "Oper")),
-        "status": clean_str(_col(df, "Mode")),
-        "fluid": clean_str(_col(df, "Fluid")),
+        # The index has no operator column; BC well names start with the operator's abbreviation (e.g. "CNRL HZ ALTARES").
+        "licensee": name.str.extract(r"^([A-Z0-9&\-\.]+)", expand=False),
+        "status": mode.where(~service, "WATER INJECTION"),
+        "status_text": (fluid.fillna("") + " " + mode.fillna("") + " " + oper.fillna("")).str.strip().replace("", pd.NA),
+        "fluid": fluid,
         "field": clean_str(_col(df, "Area")),
         "formation": clean_str(_col(df, "Form")),
         "spud_date": _col(df, "RR Date"),          # rig release date: the closest published drilling date

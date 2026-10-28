@@ -10,7 +10,7 @@ from . import locate
 
 WELL_COLS = ["uwi", "province", "well_name", "licence", "licensee", "status", "status_text", "status_group", "status_date",
              "fluid", "field", "formation", "spud_date", "total_depth_m", "horizontal", "lat", "lon", "loc_precision",
-             "bh_lat", "bh_lon"]
+             "bh_lat", "bh_lon", "surface_loc"]
 PROD_COLS = ["entity_id", "entity_type", "province", "month", "operator", "facility_id", "location",
              "oil_m3", "gas_e3m3", "cond_m3", "water_m3", "hours"]
 
