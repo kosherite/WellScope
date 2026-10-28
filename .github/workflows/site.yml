@@ -1,0 +1,48 @@
+name: Publish website changes
+
+# Front-end edits shouldn't need a multi-hour data rebuild: reuse the latest pipeline's data,
+# or the committed pilot snapshot if the pipeline hasn't succeeded yet.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the latest full dataset if there is one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh run list --workflow pipeline.yml --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
+          if [ -n "$id" ] && gh run download "$id" -n site-data -D /tmp/site-data; then
+            rm -rf site/data && mv /tmp/site-data site/data && echo "Using data from pipeline run $id"
+          else
+            echo "No pipeline data yet; publishing the committed pilot snapshot"
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

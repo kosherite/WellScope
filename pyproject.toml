@@ -1,0 +1,15 @@
+[project]
+name = "wellscope"
+version = "0.2.0"
+description = "Open-data screening for Western Canadian Sedimentary Basin oil and gas assets"
+requires-python = ">=3.10"
+dependencies = ["pandas>=2.1", "numpy>=1.26", "scipy>=1.11", "openpyxl>=3.1", "pyarrow>=14", "xlrd>=2.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools]
+packages = ["wellscope", "wellscope.sources"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

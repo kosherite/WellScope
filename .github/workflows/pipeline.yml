@@ -1,0 +1,91 @@
+name: Build basin data and publish site
+
+on:
+  schedule:
+    - cron: "17 9 22 * *"          # monthly, after Petrinex and the provinces post the prior month
+  workflow_dispatch:
+    inputs:
+      provinces:
+        description: "Provinces to load"
+        default: "AB,SK,BC,MB"
+      months:
+        description: "Months of production history"
+        default: "36"
+      probe_only:
+        description: "Only print each source's columns (no build)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e .
+
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: raw-${{ github.run_id }}
+          restore-keys: raw-
+
+      - name: Probe sources (column check)
+        run: python -m wellscope probe || echo "::warning::One or more sources failed the probe; see log above"
+
+      - name: Build
+        if: ${{ !inputs.probe_only }}
+        run: |
+          python -m wellscope run \
+            --provinces "${{ inputs.provinces || 'AB,SK,BC,MB' }}" \
+            --months "${{ inputs.months || '36' }}" \
+            --out site/data --parquet data/build --allow-partial
+          du -sh site/data
+
+      - name: Keep the site data for website-only deploys
+        if: ${{ !inputs.probe_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-data
+          path: site/data
+          retention-days: 90
+
+      - name: Keep the processed tables
+        if: ${{ !inputs.probe_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wellscope-tables
+          path: data/build
+          retention-days: 30
+
+      - uses: actions/configure-pages@v5
+        if: ${{ !inputs.probe_only }}
+      - uses: actions/upload-pages-artifact@v3
+        if: ${{ !inputs.probe_only }}
+        with:
+          path: site
+
+  deploy:
+    if: ${{ !inputs.probe_only }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WellScope</title>
+<meta name="description" content="Open-data screening for Western Canadian oil and gas: production, decline, type curves, operators and liability from AER, Petrinex, BCER and Manitoba data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="logo" href="#overview"><i></i>WellScope</a>
+  <nav id="nav">
+    <a href="#overview" data-r="overview">Overview</a>
+    <a href="#map" data-r="map">Map</a>
+    <a href="#operators" data-r="operators">Operators</a>
+    <a href="#methods" data-r="methods">Data &amp; methods</a>
+  </nav>
+  <span class="spacer"></span>
+  <button class="pill" id="deckBtn" type="button" aria-controls="deck">Price deck <span class="muted" id="deckSummary"></span></button>
+</div></header>
+
+<main id="view" aria-live="polite"><p class="muted">Loading data…</p></main>
+
+<aside class="drawer" id="deck" aria-label="Price deck" aria-hidden="true">
+  <div class="section-head"><h2>Price deck</h2><button class="pill" id="deckClose" type="button">Done</button></div>
+  <p class="muted" style="margin:0;font-size:14px">Every value on the site (PV10 of producing wells, netbacks) is recalculated with these numbers. They're saved in this browser only.</p>
+  <div id="deckFields" style="display:grid;gap:12px"></div>
+  <div class="netback"><span class="muted" style="font-size:13px">Field netback, light oil</span><b id="nbOil">–</b><span class="muted" style="font-size:13px">Field netback, gas (per boe)</span><b id="nbGas" style="color:var(--sky-ink)">–</b></div>
+  <button class="pill" id="deckReset" type="button">Reset to defaults</button>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
