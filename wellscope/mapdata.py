@@ -133,6 +133,8 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
             if c not in extra:
                 extra[c] = pd.NA
         w = pd.concat([w, extra[WELL_COLS]], ignore_index=True)
+    for c in ("lat", "lon", "bh_lat", "bh_lon", "total_depth_m"):
+        w[c] = pd.to_numeric(w[c], errors="coerce").astype(float)
     w = w.dropna(subset=["lat", "lon"])
     w["licensee"] = w["licensee"].fillna(w["uwi"].map(prod_op))
     w["sym"] = [symbol(g, f, u in produced) for g, f, u in zip(w["status_group"], w["fluid"], w["uwi"])]

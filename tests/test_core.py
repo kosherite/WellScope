@@ -167,9 +167,11 @@ def test_mapdata_exports(tmp_path):
     from wellscope import mapdata
     W, P = synthetic()
     W.loc[0, "bh_lat"], W.loc[0, "bh_lon"] = W.loc[0, "lat"] + 0.015, W.loc[0, "lon"]
+    W = W.astype({"lat": object, "lon": object, "bh_lat": object, "bh_lon": object})   # as after concatenating provinces
+    P = pd.concat([P, P.head(1).assign(entity_id="00/01-01-061-12W5/0")])              # a producing well not on the list
     W["licence"] = [str(1000 + i) for i in range(len(W))]
     meta = mapdata.build(W, P, tmp_path / "site", {"AB": {"name": "Alberta", "pages": []}}, tmp_path / "work")
-    assert meta["counts"]["wells"] == 60 and meta["counts"]["producing"] == 55 and meta["counts"]["laterals"] == 1
+    assert meta["counts"]["wells"] == 61 and meta["counts"]["not_on_lists"] == 1 and meta["counts"]["laterals"] == 1
     first = json.loads((tmp_path / "work" / "wells.geojsonl").read_text().splitlines()[0])
     assert set(first["properties"]) == {"u", "s", "o", "b"}
     key = mapdata.shard_key(W.uwi.iloc[0])
