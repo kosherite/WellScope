@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -22,6 +23,13 @@ ADAPTERS = {"AB": ab, "SK": sk, "BC": bc, "MB": mb}
 def month_list(end: str | None, n: int) -> list[str]:
     end_p = pd.Period(end, "M") if end else (pd.Timestamp.today() - pd.DateOffset(months=2)).to_period("M")
     return [str(p) for p in pd.period_range(end=end_p, periods=n, freq="M")]
+
+
+def notice(title: str, msg: str, level: str = "notice") -> None:
+    """Surface a one-line result as a GitHub Actions annotation (visible on the run page and via the API)."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        msg = msg.replace("%", "%25").replace("\r", "").replace("\n", " ")[:3500]
+        print(f"::{level} title={title}::{msg}", flush=True)
 
 
 def cmd_run(a) -> int:
@@ -61,6 +69,10 @@ def cmd_run(a) -> int:
     meta["problems"] = problems
     (Path(a.out) / "meta.json").write_text(__import__("json").dumps(meta, default=str))
     print(f"done: {meta['counts']}  problems: {list(problems) or 'none'}")
+    notice("WellScope build", f"counts={meta['counts']} latest={meta['latest']} backtest={meta['backtest']} "
+                              f"location_check={meta['location_check']}")
+    for k, v in problems.items():
+        notice(f"Problem: {k}", v, "warning")
     return 0 if not problems or a.allow_partial else 2
 
 
@@ -87,9 +99,12 @@ def cmd_probe(a) -> int:
             df = fn()
             print("columns:", list(df.columns))
             print(df.head(3).to_string(max_colwidth=30))
+            first = df.head(1).to_dict("records")[0] if len(df) else {}
+            notice(f"Probe OK: {name}", f"columns={list(df.columns)} first_row={ {k: str(v)[:40] for k, v in first.items()} }")
         except Exception as e:
             ok = False
             print("FAILED:", repr(e))
+            notice(f"Probe FAILED: {name}", repr(e), "warning")
     return 0 if ok else 3
 
 
