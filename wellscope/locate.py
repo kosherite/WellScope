@@ -52,6 +52,8 @@ class DLS:
 
 
 def parse_dls(text: str | None) -> DLS | None:
+    if text is None or not isinstance(text, str) and str(text) in ("<NA>", "nan", "NaT", "None"):
+        return None
     if not text:
         return None
     m = _DLS.search(str(text).replace(" ", ""))
@@ -172,6 +174,8 @@ def normalize_uwi(text: str | None) -> str | None:
 
 def locate(text: str | None) -> tuple[float | None, float | None, str]:
     """Best-effort (lat, lon, precision) from any DLS or NTS text."""
+    if text is None or not isinstance(text, str) and str(text) in ("<NA>", "nan", "NaT", "None"):
+        return None, None, "unplaced"
     d = parse_dls(text)
     if d:
         lat, lon = dls_to_latlon(d)
