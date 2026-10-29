@@ -12,6 +12,7 @@ const mean = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
 async function openCompany(i, { fit = true } = {}) {
   const c = OPS[i];
   if (!c) return;
+  if (!HAS_CO) { setOperator(i, { fit }); return; }      // data built before company pages existed: plain filter
   const p = panel();
   p.hidden = false; p.classList.add("wide");
   setOperator(i, { fit, quiet: true });

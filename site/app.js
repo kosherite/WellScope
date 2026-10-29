@@ -9,7 +9,7 @@ const SOURCE = { AB: "AER ST37 well list and Petrinex", SK: "Petrinex Saskatchew
 const n = (v, d = 0) => v == null || !isFinite(v) ? "–" : Number(v).toLocaleString("en-CA", { maximumFractionDigits: d, minimumFractionDigits: d });
 const dark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
 
-let META = null, OPS = [], map, selected = null, opFilter = null;
+let HAS_CO = false, META = null, OPS = [], map, selected = null, opFilter = null;
 const hidden = new Set();
 const cache = new Map();
 const getJSON = (p) => { if (!cache.has(p)) cache.set(p, fetch("data/" + p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })); return cache.get(p); };
@@ -400,7 +400,7 @@ function readHash() {
 
 // ------------------------------------------------------------------ start
 (async function start() {
-  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("companies.json").catch(() => getJSON("operators.json"))]); LOC.setOffsets(await getJSON("grid_offsets.json").catch(() => ({}))); }
+  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("companies.json").then((c) => { HAS_CO = true; return c; }).catch(() => getJSON("operators.json"))]); LOC.setOffsets(await getJSON("grid_offsets.json").catch(() => ({}))); }
   catch (e) { document.body.insertAdjacentHTML("beforeend", `<div class="modal"><div class="sheet"><h2>No map data yet</h2><p>Run the pipeline (<span class="mono">python -m wellscope run</span>, or the "Build basin data" action) to create <span class="mono">site/data</span>.</p></div></div>`); return; }
   if (typeof maplibregl === "undefined" || typeof pmtiles === "undefined") { toast("The map library couldn't load. Check your connection and reload."); return; }
   const protocol = new pmtiles.Protocol();
