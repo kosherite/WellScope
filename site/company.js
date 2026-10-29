@@ -117,7 +117,7 @@ function renderFormations(body, d) {
       <td class="n">${dq ? n(ch / Math.abs(dq) * 100) + "%" : "–"}</td>
       <td class="n">${pct(r.year_ago > 0 ? (r.boe / r.year_ago - 1) * 100 : null, 1)}</td>
       <td class="n">${r.liquids_pct == null ? "–" : r.liquids_pct + "%"}</td><td class="n">${n(r.wells)}</td><td>${spark(r.series)}</td></tr>`; }).join("")}</tbody></table></div>
-    <p class="src">Last three months against the three before them, and against the same three months a year earlier. Formations come from each well's pool; wells reporting production but missing from the well lists show as Unassigned.</p>`;
+    <p class="src">Last three months against the three before them, and against the same three months a year earlier. Formations come from each well's pool; wells reporting production but missing from the well lists show as Unassigned. Commingled means a well producing from several zones at once, which Alberta reports as a single pool.</p>`;
 }
 
 // ---- activity
