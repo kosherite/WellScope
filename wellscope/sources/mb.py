@@ -51,6 +51,21 @@ def wells(cache: Path) -> pd.DataFrame:
         "formation": clean_str(_col(df, "POOL CODE")),
         "horizontal": clean_str(_col(df, "DEVIATION")).str.upper().str.startswith("H").fillna(False),
     })
+    # Pool and field names are in the production workbooks, not the UWI list
+    try:
+        names = {}
+        zpath = fetch.download(SOURCES["MB"]["production"][0], cache / "MB" / "wmp_0.zip")
+        for _, sheet in _sheets(zpath):
+            sh = _up(sheet)
+            if {"UWI", "POOL NAME"} <= set(sh.columns):
+                u = sh["UWI"].astype(str).str.replace(".", "/", regex=False)
+                names.update(dict(zip(u, zip(sh["POOL NAME"], sh.get("FIELD NAME", pd.Series(pd.NA, index=sh.index))))))
+        pool = out["uwi"].map(lambda x: names.get(x, (None, None))[0])
+        field = out["uwi"].map(lambda x: names.get(x, (None, None))[1])
+        out["formation"] = pool.where(pool.notna(), out["formation"])
+        out["field"] = field.where(field.notna(), out["field"])
+    except Exception as e:
+        print(f"  MB pool names unavailable: {e}")
     return finish_wells(out, "MB")
 
 

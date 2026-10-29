@@ -9,7 +9,7 @@ import pandas as pd
 from .. import fetch
 from ..config import SOURCES
 from ..schema import canon_uwi, clean_str, finish_wells
-from . import petrinex
+from . import codes, petrinex
 
 
 def _find(z: zipfile.ZipFile, key: str) -> str:
@@ -74,6 +74,15 @@ def wells(cache: Path) -> pd.DataFrame:
         "lat": df["SH_Actual_Latitude"],
         "lon": df["SH_Actual_Longitude"],
     })
+    # numeric field/pool codes -> names (Petrinex code report); keep the code if a name isn't found
+    fields, pools = codes.ab_field_pool(cache)
+    if fields or pools:
+        fcode = out["field"].astype("string").str.strip().str.lstrip("0")
+        pcode = out["formation"].astype("string").str.strip().str.lstrip("0")
+        fname = fcode.map(fields)
+        pname = pd.Series([pools.get((f, p_), pools.get(p_)) for f, p_ in zip(fcode, pcode)], index=out.index)
+        out["field"] = fname.where(fname.notna(), out["field"])
+        out["formation"] = pname.where(pname.notna(), out["formation"])
     return finish_wells(out, "AB")
 
 

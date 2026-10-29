@@ -11,6 +11,7 @@ SOURCES = {
         "wells": "https://www.aer.ca/prd/documents/sts/st37/ST_37_Excel.zip",          # AER ST37 Excel package
         "petrinex": "AB",
         "infra": ["Well Infrastructure", "Well to Facility Link", "Facility Infrastructure", "Business Associate"],
+        "pool_codes": "https://www.petrinex.gov.ab.ca/bbreports/PRAFieldandPoolCodes.csv",   # field + pool code -> names
         "pages": ["https://www.aer.ca/data-and-performance-reports/statistical-reports/st37",
                   "https://www.petrinex.ca/public-data/apd/"],
     },

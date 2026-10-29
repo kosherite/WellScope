@@ -196,3 +196,47 @@ def test_grid_offsets_recover_a_known_shift():
     off, check = mapdata.grid_offsets(pd.DataFrame(rows))
     assert off["W5-060-03"] == [0.02, -0.03]
     assert check["median_km_after"] < 0.01 < check["median_km_before"]
+
+
+def test_companies_merge_spellings_and_tickers(tmp_path):
+    from wellscope.companies import Resolver
+    f = tmp_path / "c.yml"
+    f.write_text("TOU:\n  name: Tourmaline Oil Corp.\n  aliases: [Tourmaline]\nCNQ:\n  name: Canadian Natural Resources Limited\n  aliases: [CNRL]\n")
+    r = Resolver(f)
+    a, b, c = r.resolve("TOURMALINE OIL CORP."), r.resolve("Tourmaline"), r.resolve("CNRL")
+    assert a == b and a.ticker == "TOU" and a.id == "tou" and c.ticker == "CNQ"
+    x, y = r.resolve("ACME OIL LTD."), r.resolve("Acme Oil Ltd")
+    assert x.id == y.id and x.name == "Acme Oil Ltd." and r.unmatched
+
+
+def test_plays():
+    from wellscope.plays import play
+    assert play("MONTNEY A") == "Montney" and play("BLUESKY-GETHING (ABC)") == "Spirit River (Deep Basin)"
+    assert play("Lodgepole A") == "Mississippian (Midale / Frobisher)" and play("5000") == "Formation code 5000"
+    assert play(None) is None
+
+
+def test_company_pages_and_activity(tmp_path):
+    from wellscope import mapdata
+    from wellscope.companies import Resolver
+    W, P = synthetic()
+    W["formation"] = ["MONTNEY A" if i % 2 else "CARDIUM" for i in range(len(W))]
+    yml = tmp_path / "c.yml"
+    yml.write_text("ACM:\n  name: Acme Oil Ltd.\n  aliases: [ACME]\n")
+    today = pd.Timestamp.today().normalize()
+    ev = pd.DataFrame({"date": [today - pd.Timedelta(days=5), today - pd.Timedelta(days=40)], "kind": ["licence", "spud"],
+                       "province": ["AB", "AB"], "licensee": ["ACME OIL LTD.", "Beta Energy Inc."], "licence": ["1", "2"],
+                       "location": ["06-36-060-12W5", None], "uwi": [None, W.uwi.iloc[0]], "formation": ["Montney", "Cardium"],
+                       "hz": [True, False], "lat": [None, 54.1], "lon": [None, -115.7], "loc_precision": [None, "surveyed"]})
+    from wellscope.locate import locate
+    y, x, pr = locate("06-36-060-12W5"); ev.loc[0, ["lat", "lon", "loc_precision"]] = [y, x, pr]
+    meta = mapdata.build(W, P, tmp_path / "s", {"AB": {"name": "Alberta", "pages": []}}, tmp_path / "w", events=ev, resolver=Resolver(yml))
+    cos = json.loads((tmp_path / "s" / "companies.json").read_text())
+    acme = next(c for c in cos if c["t"] == "ACM")
+    page = json.loads((tmp_path / "s" / "co" / f"{acme['id']}.json").read_text())
+    assert len(page["prod"]["oil"]) == len(page["months"]) and page["prod"]["oil"][-1] > 0
+    assert {f["play"] for f in page["formations"]} <= {"Montney", "Cardium"} and page["formations"][0]["boe"] > 0
+    assert sum(page["activity"]["licence"]) == 1 and page["activity"]["recent"][0][1] == "licence"
+    act = json.loads((tmp_path / "s" / "activity.json").read_text())
+    assert len(act["rows"]) == 2 and {r[2] for r in act["rows"]} == {"L", "S"}
+    assert meta["counts"]["companies_with_pages"] >= 2

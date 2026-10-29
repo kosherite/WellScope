@@ -15,9 +15,9 @@
 <div id="map" aria-label="Map of oil and gas wells"></div>
 
 <header class="bar">
-  <a class="brand" href="#" title="WellScope"><i></i><span>WellScope</span></a>
+  <a class="brand" href="#" title="WellScope"><svg class="mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect width="24" height="24" rx="7" fill="var(--ink)"/><circle cx="12" cy="12" r="6.2" fill="none" stroke="var(--brand-ring)" stroke-width="2"/><circle cx="12" cy="12" r="2.4" fill="var(--brand-dot)"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4" stroke="var(--brand-ring)" stroke-width="1.6" stroke-linecap="round"/></svg><span>WellScope</span></a>
   <div class="search" role="search">
-    <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="UWI, licence, legal location or operator" aria-label="Search wells">
+    <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="UWI, licence, location, company or ticker" aria-label="Search wells">
     <div id="suggest" class="suggest" hidden></div>
   </div>
   <button class="iconbtn" id="layersBtn" type="button" aria-expanded="false" aria-controls="layers" title="Layers">
@@ -34,6 +34,8 @@
   </div>
   <label class="check"><input type="checkbox" id="gridT" checked> Township &amp; section grid</label>
   <label class="check"><input type="checkbox" id="latT" checked> Horizontal laterals</label>
+  <label class="check"><input type="checkbox" id="actT"> New activity, last 90 days <small class="muted" id="actCount"></small></label>
+  <div class="actkey"><span><i class="ring"></i>Licence issued</span><span><i class="fill"></i>Drilling started</span></div>
   <div class="row" style="margin-top:6px"><b>Wells</b><span class="muted" id="wellCount"></span></div>
   <div id="legend" class="legend"></div>
   <p class="fine">Grid lines are drawn from the survey formula and can be a few hundred metres off. Well positions use surveyed coordinates where the regulator publishes them.</p>
@@ -49,5 +51,6 @@
 <script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <script src="locate.js"></script>
 <script src="app.js"></script>
+<script src="company.js"></script>
 </body>
 </html>

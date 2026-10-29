@@ -25,6 +25,8 @@ import pandas as pd
 
 from . import locate
 from .config import E3M3_TO_MCF, M3_TO_BBL
+from .companies import Resolver
+from .plays import play
 from .schema import WELL_COLS, canon_uwi
 
 # Map symbols follow the usual well-map conventions: producing oil, producing gas, suspended oil/gas,
@@ -125,15 +127,19 @@ def _clean(v):
     return v
 
 
-def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, work: Path) -> dict:
+def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, work: Path,
+          events: pd.DataFrame | None = None, resolver: Resolver | None = None) -> dict:
     out, work = Path(out), Path(work)
-    for d in (out / "twp", out / "lic", work):
+    resolver = resolver or Resolver()
+    for d in (out / "twp", out / "lic", out / "co", work):
         d.mkdir(parents=True, exist_ok=True)
 
     # ---- production: calendar-day rates per well and month
     p = prod[prod["entity_type"] == "well"].copy()
     days = p["month"].dt.days_in_month.astype("float32")
     p["oil"] = ((p["oil_m3"] + p["cond_m3"]) * M3_TO_BBL / days).round(1)
+    p["oil_only"] = p["oil_m3"] * M3_TO_BBL / days
+    p["cond"] = p["cond_m3"] * M3_TO_BBL / days
     p["gas"] = (p["gas_e3m3"] * E3M3_TO_MCF / days).round(1)
     p["wat"] = (p["water_m3"] * M3_TO_BBL / days).round(1)
     latest = p.groupby("province")["month"].max()
@@ -185,24 +191,23 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
         w.loc[idx, "lat"] = w.loc[idx, "lat"] + [o[0] for o in tk[has]]
         w.loc[idx, "lon"] = w.loc[idx, "lon"] + [o[1] for o in tk[has]]
 
-    # ---- operators: merge spellings that differ only in case or suffix (Tourmaline Oil Corp. / TOURMALINE OIL CORP.)
-    from .analytics import nice_name, op_key
-    raw = w["licensee"].fillna("Unknown").astype(str).str.strip()
-    keys = raw.map(lambda x: op_key(x) or x.upper())
-    pretty = (pd.DataFrame({"k": keys, "r": raw.map(nice_name)}).groupby("k")["r"]
-              .agg(lambda s: s[~s.str.isupper()].mode().iloc[0] if (~s.str.isupper()).any() else s.mode().iloc[0]))
-    w["licensee"] = keys.map(pretty)
-    ops = (w.assign(n=w["licensee"].fillna("Unknown").astype(str).str.strip())
-             .groupby("n").agg(wells=("uwi", "size"), producing=("boe", lambda s: int((s > 0).sum())),
-                               s=("lat", "min"), n_=("lat", "max"), wst=("lon", "min"), e=("lon", "max"),
-                               boe=("boe", "sum"))
+    # ---- companies: every regulator spelling -> one company (data/companies.yml adds tickers and aliases)
+    names = w["licensee"].fillna("Unknown").astype(str).str.strip()
+    resolved = {n: resolver.resolve(n, weight=c) for n, c in names.value_counts().items()}
+    w["co"] = names.map(lambda n: resolved[n].id)
+    co_meta = {c.id: c for c in resolved.values()}
+    w["licensee"] = w["co"].map(lambda i: co_meta[i].name)
+    w["play"] = [play(f, pv) for f, pv in zip(w["formation"], w["province"])]
+    ops = (w.groupby("co").agg(wells=("uwi", "size"), producing=("boe", lambda s: int((s > 0).sum())),
+                               s=("lat", "min"), n_=("lat", "max"), wst=("lon", "min"), e=("lon", "max"), boe=("boe", "sum"))
              .sort_values("wells", ascending=False).reset_index())
-    op_index = {name: i for i, name in enumerate(ops["n"])}
-    w["o"] = w["licensee"].fillna("Unknown").astype(str).str.strip().map(op_index)
-    (out / "operators.json").write_text(json.dumps([
-        {"n": r.n, "w": int(r.wells), "p": int(r.producing), "boe": round(float(r.boe)),
-         "b": [round(r.wst, 4), round(r.s, 4), round(r.e, 4), round(r.n_, 4)]} for r in ops.itertuples()],
-        separators=(",", ":")))
+    op_index = {cid: i for i, cid in enumerate(ops["co"])}
+    w["o"] = w["co"].map(op_index)
+    company_list = [{"id": r.co, "n": co_meta[r.co].name, "t": co_meta[r.co].ticker, "w": int(r.wells), "p": int(r.producing),
+                     "boe": round(float(r.boe)), "b": [round(r.wst, 4), round(r.s, 4), round(r.e, 4), round(r.n_, 4)]}
+                    for r in ops.itertuples()]
+    (out / "companies.json").write_text(json.dumps(company_list, separators=(",", ":")))
+    (out / "operators.json").write_text(json.dumps(company_list, separators=(",", ":")))     # kept for older pages
 
     # ---- tile features
     # Zoomed out, draw light "dots" (symbol only); from zoom 9 the "wells" layer carries UWI, operator and rate.
@@ -236,8 +241,8 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
                            for row in arr]
     fields = ["province", "well_name", "licence", "licensee", "status_text", "status_group", "status_date", "fluid",
               "field", "formation", "spud_date", "total_depth_m", "horizontal", "lat", "lon", "loc_precision",
-              "bh_lat", "bh_lon", "sym", "boe"]
-    short = ["p", "n", "li", "lc", "st", "sg", "sd", "fl", "fd", "fm", "sp", "td", "hz", "y", "x", "lp", "by", "bx", "s", "b"]
+              "bh_lat", "bh_lon", "sym", "boe", "play"]
+    short = ["p", "n", "li", "lc", "st", "sg", "sd", "fl", "fd", "fm", "sp", "td", "hz", "y", "x", "lp", "by", "bx", "s", "b", "pl"]
     n_shards = 0
     for key, g in w.dropna(subset=["key"]).groupby("key"):
         recs = {}
@@ -261,7 +266,16 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
     for sh, d in lic.items():
         (out / "lic" / f"{sh}.json").write_text(json.dumps(d, separators=(",", ":")))
 
-    counts = {"grid_check": check, "wells": int(len(w)), "producing": int((w["boe"] > 0).sum()), "laterals": int(len(hz)),
+    # ---- company pages: production by month, formations, activity
+    ev = prepare_events(events, resolver, offsets) if events is not None else None
+    n_co = write_companies(out, w, p, months, mlabels, company_list, ev)
+    if ev is not None:
+        write_activity(out, ev)
+    (out / "unmatched_companies.json").write_text(json.dumps(
+        sorted(([k, v] for k, v in resolver.unmatched.items()), key=lambda x: -x[1])[:300], separators=(",", ":")))
+
+    counts = {"grid_check": check, "companies_with_pages": n_co, "activity_events": 0 if ev is None else int(len(ev)),
+              "wells": int(len(w)), "producing": int((w["boe"] > 0).sum()), "laterals": int(len(hz)),
               "operators": int(len(ops)), "shards": n_shards, "not_on_lists": len(missing),
               "by_province": {k: int(v) for k, v in w["province"].value_counts().items()},
               "by_symbol": {k: int(v) for k, v in w["sym"].value_counts().items()}}
@@ -271,3 +285,103 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
             "counts": counts, "symbols": SYMBOLS, "sources": sources}
     (out / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
     return meta
+
+
+# ------------------------------------------------------------------ company pages
+def _round(a):
+    return [round(float(x)) if abs(x) >= 100 else round(float(x), 1) for x in a]
+
+
+def write_companies(out: Path, w: pd.DataFrame, p: pd.DataFrame, months, mlabels, company_list, ev) -> int:
+    """co/<id>.json for every company with production, wells or activity worth a page."""
+    T = len(months)
+    co_of = w.set_index("uwi")["co"]
+    play_of = w.set_index("uwi")["play"]
+    q = p[["entity_id", "mi", "oil_only", "cond", "gas"]].copy()
+    q["co"] = q["entity_id"].map(co_of)
+    q["play"] = q["entity_id"].map(play_of).fillna("Unassigned")
+    q["boe"] = q["oil_only"] + q["cond"] + q["gas"] / 6
+    q = q.dropna(subset=["co"])
+    monthly = q.groupby(["co", "mi"]).agg(oil=("oil_only", "sum"), cond=("cond", "sum"), gas=("gas", "sum"),
+                                          wells=("boe", lambda s: int((s > 0).sum())))
+    by_play = q.groupby(["co", "play", "mi"]).agg(boe=("boe", "sum"), oil=("oil_only", "sum"), cond=("cond", "sum"),
+                                                  wells=("boe", lambda s: int((s > 0).sum())))
+    last = T - 1
+    win = lambda lo, hi: [i for i in range(T) if last - hi <= i <= last - lo]  # noqa: E731
+    now, prev_q, year_ago = win(0, 2), win(3, 5), win(12, 14)
+    status = w.groupby(["co", "status_group"]).size()
+    prov = w.groupby(["co", "province"]).size()
+    if ev is not None and len(ev):
+        weeks = pd.date_range(end=pd.Timestamp.today().normalize(), periods=52, freq="W-MON")
+        ev = ev.assign(week=ev["date"].dt.to_period("W-SUN").dt.start_time)
+    n = 0
+    for c in company_list:
+        cid = c["id"]
+        if cid == "unknown" or (c["p"] == 0 and c["w"] < 25):
+            continue
+        d = {"id": cid, "n": c["n"], "t": c["t"], "b": c["b"], "wells": c["w"], "producing": c["p"],
+             "status": {k: int(v) for k, v in status.get(cid, pd.Series(dtype=int)).items()},
+             "provinces": {k: int(v) for k, v in prov.get(cid, pd.Series(dtype=int)).items()}, "months": mlabels}
+        if cid in monthly.index.get_level_values(0):
+            m = monthly.loc[cid].reindex(range(T), fill_value=0)
+            d["prod"] = {"oil": _round(m["oil"]), "cond": _round(m["cond"]), "gas": _round(m["gas"]), "wells": [int(x) for x in m["wells"]]}
+            rows = []
+            bp = by_play.loc[cid]
+            for pl in bp.index.get_level_values(0).unique():
+                s_ = bp.loc[pl].reindex(range(T), fill_value=0)
+                avg = lambda idx, col="boe": float(s_.loc[idx, col].mean()) if idx else 0.0  # noqa: E731
+                cur = avg(now)
+                if cur <= 0 and avg(prev_q) <= 0:
+                    continue
+                rows.append({"play": pl, "boe": round(cur), "prev_q": round(avg(prev_q)), "year_ago": round(avg(year_ago)),
+                             "liquids_pct": round((avg(now, "oil") + avg(now, "cond")) / cur * 100) if cur > 0 else None,
+                             "wells": int(s_.loc[now[-1], "wells"]) if now else 0,
+                             "series": _round(s_["boe"])})
+            rows.sort(key=lambda r: -r["boe"])
+            d["formations"] = rows
+        if ev is not None and len(ev):
+            e = ev[ev["co"] == cid]
+            if len(e):
+                wk = e.groupby(["week", "kind"]).size().unstack(fill_value=0).reindex(weeks, fill_value=0)
+                d["activity"] = {"weeks": [x.strftime("%Y-%m-%d") for x in weeks],
+                                 **{k: [int(v) for v in wk[k]] if k in wk else [0] * len(weeks)
+                                    for k in ("licence", "spud", "rig_release")},
+                                 "recent": [[r.date.strftime("%Y-%m-%d"), r.kind, r.province, r.label, r.formation or "",
+                                             bool(r.hz), round(r.lon, 5) if r.lon == r.lon else None, round(r.lat, 5) if r.lat == r.lat else None]
+                                            for r in e.sort_values("date", ascending=False).head(150).itertuples()]}
+        (out / "co" / f"{cid}.json").write_text(json.dumps(d, separators=(",", ":"), allow_nan=False, default=_clean))
+        n += 1
+    return n
+
+
+def prepare_events(events: pd.DataFrame, resolver: Resolver, offsets: dict) -> pd.DataFrame:
+    ev = events.copy()
+    ev["lat"] = pd.to_numeric(ev["lat"], errors="coerce").astype(float)
+    ev["lon"] = pd.to_numeric(ev["lon"], errors="coerce").astype(float)
+    # same grid correction as wells placed from their legal location
+    formula = ev["loc_precision"].astype(str).str.startswith("dls")
+    for i in ev.index[formula]:
+        d = locate.parse_dls(ev.at[i, "location"]) or locate.parse_dls(ev.at[i, "uwi"])
+        o = offsets.get(f"W{d.mer}-{d.twp:03d}-{d.rge:02d}") if d else None
+        if o:
+            ev.at[i, "lat"] += o[0]
+            ev.at[i, "lon"] += o[1]
+    names = ev["licensee"].fillna("Unknown").astype(str).str.strip()
+    res = {n: resolver.resolve(n, weight=0) for n in names.unique()}
+    ev["co"] = names.map(lambda n: res[n].id)
+    ev["co_name"] = names.map(lambda n: res[n].name)
+    ev["label"] = ev["location"].fillna(ev["uwi"].map(display_uwi)).astype(str)
+    ev["formation"] = ev["formation"].astype("string").str.strip().fillna("")
+    ev["hz"] = ev["hz"].fillna(False).astype(bool)
+    return ev.dropna(subset=["date"]).sort_values("date")
+
+
+def write_activity(out: Path, ev: pd.DataFrame, days: int = 90) -> None:
+    """activity.json: the last ``days`` days of licences and drilling starts for the map layer."""
+    cut = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
+    e = ev[(ev["date"] >= cut) & ev["lat"].notna()]
+    kinds = {"licence": "L", "spud": "S", "rig_release": "R"}
+    rows = [[round(r.lon, 5), round(r.lat, 5), kinds.get(r.kind, "?"), r.date.strftime("%Y-%m-%d"), r.co, r.co_name,
+             r.label, r.formation, int(r.hz), r.province] for r in e.itertuples()]
+    (out / "activity.json").write_text(json.dumps({"days": days, "through": ev["date"].max().strftime("%Y-%m-%d") if len(ev) else None,
+                                                   "rows": rows}, separators=(",", ":")))

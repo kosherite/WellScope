@@ -22,7 +22,9 @@ PRODUCTS = {"OIL": "oil_m3", "GAS": "gas_e3m3", "COND": "cond_m3", "WATER": "wat
 
 def month_file(jur: str, month: str, cache: Path) -> Path:
     raw = cache / jur / "vol" / f"{month}.bin"
-    fetch.download(PETRINEX_VOL.format(jur=jur, month=month), raw)
+    # Months more than six months back are settled; recent months still receive amendments, so refresh those.
+    settled = pd.Period(month, "M") < pd.Timestamp.today().to_period("M") - 6
+    fetch.download(PETRINEX_VOL.format(jur=jur, month=month), raw, max_age_hours=None if settled else 20)
     return raw
 
 

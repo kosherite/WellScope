@@ -15,11 +15,19 @@ import pandas as pd
 UA = {"User-Agent": "Mozilla/5.0 (WellScope open-data pipeline; +https://github.com/kosherite/wellscope)"}
 
 
-def download(url: str, dest: Path, retries: int = 3, timeout: int = 600, quiet: bool = False) -> Path:
-    """Stream ``url`` to ``dest`` unless it is already cached. Retries with backoff."""
+def download(url: str, dest: Path, retries: int = 3, timeout: int = 600, quiet: bool = False,
+             max_age_hours: float | None = 20) -> Path:
+    """Stream ``url`` to ``dest``, reusing a cached copy younger than ``max_age_hours`` (None = keep forever).
+
+    Lists that change (well lists, licences) must refresh every run; old production months never change.
+    """
     dest = Path(dest)
     if dest.exists() and dest.stat().st_size > 0:
-        return dest
+        age_h = (time.time() - dest.stat().st_mtime) / 3600
+        if max_age_hours is None or age_h < max_age_hours:
+            return dest
+    if os.environ.get("WELLSCOPE_OFFLINE"):
+        raise RuntimeError(f"offline: {url} is not cached")
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
     last = None

@@ -19,7 +19,8 @@ import pandas as pd
 from . import analytics, fetch, mapdata
 from .config import SOURCES
 from .schema import WELL_COLS
-from .sources import ab, bc, mb, sk
+from .companies import Resolver
+from .sources import ab, activity, bc, mb, sk
 
 ADAPTERS = {"AB": ab, "SK": sk, "BC": bc, "MB": mb}
 
@@ -85,10 +86,23 @@ def cmd_run(a) -> int:
         Path(a.parquet).mkdir(parents=True, exist_ok=True)
         W.to_parquet(Path(a.parquet) / "wells.parquet", index=False)
         P.to_parquet(Path(a.parquet) / "production.parquet", index=False)
+    print("\n== activity", flush=True)
+    provs = [p.strip().upper() for p in a.provinces.split(",") if p.strip()]
+    try:
+        events, act_problems = activity.collect(W, cache, provs)
+        problems.update(act_problems)
+        print(f"  {len(events):,} events: {events['kind'].value_counts().to_dict()}", flush=True)
+        notice("Activity", f"{len(events):,} events {events.groupby(['province', 'kind']).size().to_dict()}; problems {act_problems}")
+    except Exception:
+        notice("Activity FAILED", traceback.format_exc()[-1500:], "warning")
+        events = None
     print("\n== map data", flush=True)
     out = Path(a.out)
     try:
-        meta = mapdata.build(W, P, out, used, Path(a.work))
+        resolver = Resolver()
+        meta = mapdata.build(W, P, out, used, Path(a.work), events=events, resolver=resolver)
+        top = sorted(resolver.unmatched.items(), key=lambda x: -x[1])[:60]
+        notice("Unmatched company names (top 60 by wells)", f"{top}")
         tiles(Path(a.work), out)
     except Exception:
         notice("Map data FAILED", traceback.format_exc()[-2500:], "error")

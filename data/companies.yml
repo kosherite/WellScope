@@ -1,0 +1,119 @@
+# One company, every way the regulators spell it.
+#
+# Each entry: ticker (exchange symbol, or leave blank for private companies), the display name, and aliases.
+# Matching ignores case, punctuation and suffixes like Ltd., Inc., Corp., ULC, so "TOURMALINE OIL CORP." and
+# "Tourmaline Oil Corp" already match "Tourmaline Oil Corp." without being listed.
+# BC well names start with a short operator name ("CNRL HZ ALTARES"); list those short names as aliases.
+#
+# Every pipeline run writes site/data/unmatched_companies.json: the biggest names that aren't in this file yet.
+# Add them here (or open a pull request) to merge them.
+
+TOU:
+  name: Tourmaline Oil Corp.
+  aliases: [Tourmaline, Tourmaline Oil]
+ARX:
+  name: ARC Resources Ltd.
+  aliases: [ARC, ARC Resources]
+WCP:
+  name: Whitecap Resources Inc.
+  aliases: [Whitecap, Whitecap Partnership, Veren Inc., Crescent Point Energy Corp., Crescent Point Resources Partnership]
+CNQ:
+  name: Canadian Natural Resources Limited
+  aliases: [CNRL, Canadian Natural, Canadian Natural Resources]
+CVE:
+  name: Cenovus Energy Inc.
+  aliases: [Cenovus, Husky Oil Operations Limited, Husky Energy Inc.]
+SU:
+  name: Suncor Energy Inc.
+  aliases: [Suncor, Suncor Energy Oil Sands Limited Partnership]
+IMO:
+  name: Imperial Oil Resources Limited
+  aliases: [Imperial Oil, Imperial]
+OVV:
+  name: Ovintiv Canada ULC
+  aliases: [Ovintiv, Encana Corporation, ECA]
+AAV:
+  name: Advantage Energy Ltd.
+  aliases: [Advantage, Advantage Oil & Gas Ltd.]
+BIR:
+  name: Birchcliff Energy Ltd.
+  aliases: [Birchcliff]
+PEY:
+  name: Peyto Exploration & Development Corp.
+  aliases: [Peyto]
+TVE:
+  name: Tamarack Valley Energy Ltd.
+  aliases: [Tamarack Valley, Tamarack]
+BTE:
+  name: Baytex Energy Corp.
+  aliases: [Baytex, Baytex Energy Ltd.]
+KEL:
+  name: Kelt Exploration Ltd.
+  aliases: [Kelt]
+NVA:
+  name: NuVista Energy Ltd.
+  aliases: [NuVista]
+SDE:
+  name: Spartan Delta Corp.
+  aliases: [Spartan Delta, Spartan]
+HWX:
+  name: Headwater Exploration Inc.
+  aliases: [Headwater]
+OBE:
+  name: Obsidian Energy Ltd.
+  aliases: [Obsidian, Obsidian Energy Partnership, Penn West Petroleum Ltd.]
+POU:
+  name: Paramount Resources Ltd.
+  aliases: [Paramount]
+ATH:
+  name: Athabasca Oil Corporation
+  aliases: [Athabasca Oil, Athabasca]
+CJ:
+  name: Cardinal Energy Ltd.
+  aliases: [Cardinal]
+SGY:
+  name: Surge Energy Inc.
+  aliases: [Surge]
+BNE:
+  name: Bonterra Energy Corp.
+  aliases: [Bonterra]
+KEC:
+  name: Kiwetinohk Energy Corp.
+  aliases: [Kiwetinohk, Kiwetinohk Resources Corp.]
+PNE:
+  name: Pine Cliff Energy Ltd.
+  aliases: [Pine Cliff]
+JOY:
+  name: Journey Energy Inc.
+  aliases: [Journey]
+VET:
+  name: Vermilion Energy Inc.
+  aliases: [Vermilion]
+SCR:
+  name: Strathcona Resources Ltd.
+  aliases: [Strathcona]
+IPO:
+  name: InPlay Oil Corp.
+  aliases: [InPlay]
+YGR:
+  name: Yangarra Resources Ltd.
+  aliases: [Yangarra]
+PRQ:
+  name: Petrus Resources Ltd.
+  aliases: [Petrus]
+GXE:
+  name: Gear Energy Ltd.
+  aliases: [Gear]
+RBY:
+  name: Rubellite Energy Corp.
+  aliases: [Rubellite]
+LGN:
+  name: Logan Energy Corp.
+  aliases: [Logan]
+SOIL:
+  name: Saturn Oil & Gas Inc.
+  aliases: [Saturn]
+CPG:
+  name: Veren Inc.
+  aliases: []
+  merged_into: WCP

@@ -172,8 +172,9 @@ function addGrid() {
 
 // ------------------------------------------------------------------ well panel
 const panel = () => $("#panel");
-function closePanel() { panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); setHash(); }
+function closePanel() { if (typeof closeCompany === "function") closeCompany(); panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); setHash(); }
 function showList(props, lngLat) {
+  if (CO.current) closeCompany();
   const p = panel(); p.hidden = false;
   p.innerHTML = `<div class="ph"><div><h2 style="font-family:var(--font);font-weight:700">${props.length} wells here</h2><div class="name">Pick one</div></div><button class="x" aria-label="Close">×</button></div>
     <div class="list">${props.sort((a, b) => b.b - a.b).map((f) => `<button data-u="${esc(f.u)}"><img src="${ICONS[f.s] || ICONS.other}" alt=""><span><span class="mono">${esc(LOC.display(f.u))}</span>${f.b ? `<br><small class="muted">${n(f.b, 1)} boe/d</small>` : ""}</span></button>`).join("")}</div>`;
@@ -182,6 +183,7 @@ function showList(props, lngLat) {
 }
 async function openWell(canon, fly = false) {
   const key = LOC.keyOf(canon), p = panel();
+  if (CO.current) closeCompany();
   p.hidden = false; p.innerHTML = `<p class="muted">Loading ${esc(LOC.display(canon))}…</p>`;
   let shard = null, w = null;
   try { shard = await getJSON(`twp/${key}.json`); w = shard.wells[canon]; } catch (e) { /* no shard */ }
@@ -209,12 +211,12 @@ async function openWell(canon, fly = false) {
       <p class="src">Last three months average, per calendar day. ${months.length}-month totals: ${n(cum(pr[0], 1))} bbl oil, ${n(cum(pr[1], 1000), 1)} mmcf gas.</p>` : ""}
     <dl class="facts">
       <div><dt>Licence${w.p === "BC" ? " (WA)" : ""}</dt><dd>${esc(w.li || "–")}</dd></div>
-      <div><dt>Licensee</dt><dd>${w.lc ? `<button class="link" data-op="${esc(w.lc)}">${esc(w.lc)}</button>` : "–"}</dd></div>
+      <div><dt>Licensee</dt><dd>${w.lc ? `<button class="link" data-op="${esc(w.lc)}" title="Open company">${esc(w.lc)}${(OPS.find((o) => o.n === w.lc) || {}).t ? ` <span class="ticker sm">${esc(OPS.find((o) => o.n === w.lc).t)}</span>` : ""}</button>` : "–"}</dd></div>
       <div class="wide"><dt>Status</dt><dd>${esc(w.st || "–")}${w.sd ? ` <span class="muted">· since ${esc(w.sd)}</span>` : ""}</dd></div>
       <div><dt>${w.p === "BC" ? "Rig release" : "Spud date"}</dt><dd>${esc(w.sp || "–")}</dd></div>
       <div><dt>Total depth</dt><dd>${w.td ? n(w.td) + " m" : "–"}</dd></div>
       <div><dt>${w.p === "BC" ? "Area" : "Field"}</dt><dd>${esc(w.fd || "–")}</dd></div>
-      <div><dt>${w.p === "AB" ? "Pool code" : "Pool / formation"}</dt><dd>${esc(w.fm || "–")}</dd></div>
+      <div><dt>Pool / formation</dt><dd>${esc(w.fm || "–")}${w.pl && w.pl !== w.fm ? `<br><small class="muted">${esc(w.pl)}</small>` : ""}</dd></div>
       <div><dt>Well type</dt><dd>${w.hz ? "Horizontal" : "Vertical or directional"}</dd></div>
       <div><dt>Province</dt><dd>${esc(PROV[w.p] || w.p)}</dd></div>
       <div class="wide"><dt>Surface location</dt><dd><span class="mono">${latLon}</span> <span class="muted">· ${esc(prec)}</span></dd></div>
@@ -230,7 +232,7 @@ async function openWell(canon, fly = false) {
   p.querySelector(".x").onclick = closePanel;
   $("#copyUwi").onclick = () => copy(w.d, "UWI copied");
   $("#shareBtn").onclick = () => copy(share, "Link copied");
-  p.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => { const o = OPS.findIndex((x) => x.n === b.dataset.op); if (o >= 0) setOperator(o); });
+  p.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => { const o = OPS.findIndex((x) => x.n === b.dataset.op); if (o >= 0) openCompany(o); });
   if (pr) productionChart($("#chart"), months, pr);
   p.scrollTop = 0;
 }
@@ -279,18 +281,21 @@ let toastT;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 1800); }
 
 // ------------------------------------------------------------------ operators
-function setOperator(i) {
+function setOperator(i, { fit = true, quiet = false } = {}) {
+  if (i == null && CO.current) { closeCompany(); panel().hidden = true; }
   if (i != null && selected) { panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); }
   opFilter = i == null ? null : { i, ...OPS[i] };
-  applyFilters();
+  applyFilters(); applyActivityFilter();
   const chip = $("#opFilter");
   if (!opFilter) { chip.hidden = true; setHash(); return; }
   chip.hidden = false;
-  chip.innerHTML = `<span>${esc(opFilter.n)} · ${n(opFilter.w)} wells</span><button aria-label="Show all operators">×</button>`;
-  chip.querySelector("button").onclick = () => setOperator(null);
+  chip.innerHTML = `<button class="chipname" title="Open company">${opFilter.t ? `<span class="ticker sm">${esc(opFilter.t)}</span> ` : ""}${esc(opFilter.n)} · ${n(opFilter.w)} wells</button><button aria-label="Show all operators">×</button>`;
+  chip.querySelector(".chipname").onclick = () => openCompany(i, { fit: false });
+  chip.querySelector("button[aria-label]").onclick = () => setOperator(null);
   const [w, s, e, nn] = opFilter.b;
-  map.fitBounds([[w, s], [e, nn]], { padding: 60, maxZoom: 12 });
-  setHash();
+  const wide = panel().classList.contains("wide") && innerWidth > 640;
+  if (fit) map.fitBounds([[w, s], [e, nn]], { padding: wide ? { left: 560, top: 80, right: 40, bottom: 40 } : 60, maxZoom: 12 });
+  if (!quiet) setHash();
 }
 
 // ------------------------------------------------------------------ search
@@ -309,9 +314,10 @@ async function suggestions(text) {
     } catch (e) { /* no licence shard */ }
   }
   if (t.length >= 2 && !p) {
-    const q = t.toLowerCase();
-    OPS.map((o, i) => [o, i]).filter(([o]) => o.n.toLowerCase().includes(q)).slice(0, 7)
-      .forEach(([o, i]) => out.push({ label: o.n, hint: `${n(o.w)} wells`, go: () => setOperator(i) }));
+    const q = t.toLowerCase(), qt = t.toUpperCase();
+    const score = (o) => o.t === qt ? 0 : o.t && o.t.startsWith(qt) ? 1 : o.n.toLowerCase().startsWith(q) ? 2 : o.n.toLowerCase().includes(q) ? 3 : 9;
+    OPS.map((o, i) => [o, i, score(o)]).filter((r) => r[2] < 9).sort((a, b) => a[2] - b[2] || b[0].boe - a[0].boe).slice(0, 7)
+      .forEach(([o, i]) => out.push({ label: (o.t ? o.t + " · " : "") + o.n, hint: o.p ? `${n(o.p)} producing` : `${n(o.w)} wells`, go: () => openCompany(i) }));
   }
   return out;
 }
@@ -331,7 +337,7 @@ function initSearch() {
     const my = ++seq; const s = await suggestions(q.value);
     if (my !== seq) return;
     sugg = s; active = 0; renderSuggest();
-    if (q.value.trim() && !s.length) { $("#suggest").hidden = false; $("#suggest").innerHTML = `<button disabled><span class="muted">No match. Try a UWI like 100/06-06-001-01W4/00, a licence number, a location like 06-06-001-01W4, or an operator.</span></button>`; }
+    if (q.value.trim() && !s.length) { $("#suggest").hidden = false; $("#suggest").innerHTML = `<button disabled><span class="muted">No match. Try a UWI like 100/06-06-001-01W4/00, a licence number, a location like 06-06-001-01W4, or a company or ticker.</span></button>`; }
   });
   q.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") { active = Math.min(active + 1, sugg.length - 1); renderSuggest(); e.preventDefault(); }
@@ -349,6 +355,7 @@ function initLayers() {
   document.querySelectorAll("#basemaps button").forEach((b) => b.onclick = () => setBase(b.dataset.b));
   $("#gridT").onchange = updateGrid;
   $("#latT").onchange = (e) => map.setLayoutProperty("laterals", "visibility", e.target.checked ? "visible" : "none");
+  $("#actT").onchange = (e) => setActivity(e.target.checked);
   const counts = META.counts.by_symbol || {};
   $("#wellCount").textContent = n(META.counts.wells) + " total";
   $("#legend").innerHTML = SYM.filter((s) => counts[s]).map((s) => `<label><input type="checkbox" data-s="${s}" checked><img src="${ICONS[s]}" alt=""><span>${esc(META.symbols[s])}</span><small>${n(counts[s])}</small></label>`).join("");
@@ -362,7 +369,7 @@ function about() {
     <p>A free map of every oil and gas well in Alberta, Saskatchewan, British Columbia and Manitoba, rebuilt every month from the regulators' public files. No account needed.</p>
     <ul>${Object.entries(c.by_province || {}).map(([p, v]) => `<li><b>${PROV[p]}</b>: ${n(v)} wells. ${esc(SOURCE[p])}. Data through ${esc(m.latest?.[p] || "")}.</li>`).join("")}</ul>
     <p>${n(c.producing)} wells reported production in the last three months. ${n(c.laterals)} horizontal laterals are drawn from published bottom-hole coordinates (Alberta).</p>
-    <p class="muted">Search accepts a UWI in any common format, a licence or well authorization number, a legal location (06-06-001-01W4, 060-12W5) or an operator. Wells without published coordinates are placed from their legal location, so they can be a few hundred metres off. Production is gross, per calendar day. Check each regulator's terms before reusing the data commercially.</p>
+    <p class="muted">Search accepts a UWI in any common format, a licence or well authorization number, a legal location (06-06-001-01W4, 060-12W5), a company name or a ticker. Open a company to see its production, the formations behind it and its drilling activity. Wells without published coordinates are placed from their legal location, so they can be a few hundred metres off. Production is gross, per calendar day. Check each regulator's terms before reusing the data commercially.</p>
     <p class="muted">Generated ${esc(m.generated)} · <a href="https://github.com/kosherite/wellscope" target="_blank" rel="noopener">Source code</a></p>`;
   const close = () => (modal.hidden = true);
   modal.querySelector(".x").onclick = close;
@@ -375,6 +382,7 @@ function setHash() {
   if (hashLock) return;
   let h;
   if (selected) h = "#well=" + encodeURIComponent(LOC.display(selected));
+  else if (CO.current) h = "#co=" + encodeURIComponent(CO.current.c.id);
   else if (opFilter) h = "#op=" + encodeURIComponent(opFilter.n);
   else { const c = map.getCenter(); h = `#@${c.lat.toFixed(4)},${c.lng.toFixed(4)},${map.getZoom().toFixed(1)}`; }
   history.replaceState(null, "", h);
@@ -384,6 +392,7 @@ function readHash() {
   hashLock = true;
   try {
     if (h.startsWith("well=")) { const p = LOC.parse(h.slice(5)); if (p && p.kind === "uwi") { map.jumpTo({ center: [p.lon, p.lat], zoom: 14.5 }); openWell(p.canon, true); } }
+    else if (h.startsWith("co=")) { const i = OPS.findIndex((o) => o.id === h.slice(3) || (o.t || "").toLowerCase() === h.slice(3).toLowerCase()); if (i >= 0) openCompany(i); }
     else if (h.startsWith("op=")) { const i = OPS.findIndex((o) => o.n === h.slice(3)); if (i >= 0) setOperator(i); }
     else if (h.startsWith("@")) { const [la, lo, z] = h.slice(1).split(",").map(Number); if (isFinite(la)) map.jumpTo({ center: [lo, la], zoom: z || 10 }); }
   } finally { hashLock = false; }
@@ -391,7 +400,7 @@ function readHash() {
 
 // ------------------------------------------------------------------ start
 (async function start() {
-  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("operators.json")]); LOC.setOffsets(await getJSON("grid_offsets.json").catch(() => ({}))); }
+  try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("companies.json").catch(() => getJSON("operators.json"))]); LOC.setOffsets(await getJSON("grid_offsets.json").catch(() => ({}))); }
   catch (e) { document.body.insertAdjacentHTML("beforeend", `<div class="modal"><div class="sheet"><h2>No map data yet</h2><p>Run the pipeline (<span class="mono">python -m wellscope run</span>, or the "Build basin data" action) to create <span class="mono">site/data</span>.</p></div></div>`); return; }
   if (typeof maplibregl === "undefined" || typeof pmtiles === "undefined") { toast("The map library couldn't load. Check your connection and reload."); return; }
   const protocol = new pmtiles.Protocol();
@@ -403,7 +412,7 @@ function readHash() {
   map.on("load", () => {
     addWellLayers(); addGrid(); initLayers(); initSearch();
     readHash();
-    map.on("moveend", () => { if (!selected && !opFilter) setHash(); });
+    map.on("moveend", () => { if (!selected && !opFilter && !CO.current) setHash(); });
   });
-  addEventListener("keydown", (e) => { if (e.key === "Escape") { closePanel(); $("#about").hidden = true; } });
+  addEventListener("keydown", (e) => { if (e.key === "Escape") { if (CO.current && panel().classList.contains("full")) { panel().classList.remove("full"); renderCompany(); return; } closePanel(); $("#about").hidden = true; } });
 })();

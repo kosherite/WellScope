@@ -45,6 +45,8 @@ def wells(cache: Path) -> pd.DataFrame:
         "field": clean_str(_col(df, "Area")),
         "formation": clean_str(_col(df, "Form")),
         "spud_date": _col(df, "RR Date"),          # rig release date: the closest published drilling date
+        # BC doesn't publish bottom-hole coordinates in the index, but horizontal wells carry "HZ" in their name
+        "horizontal": name.fillna("").str.upper().str.contains(r"\bHZ\b", regex=True),
     })
     return finish_wells(out, "BC")
 

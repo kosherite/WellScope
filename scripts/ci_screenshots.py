@@ -55,6 +55,22 @@ async def main():
         await pg.fill("#q", "tourmaline")
         await pg.wait_for_timeout(1500)
         await pg.screenshot(path=str(OUT / "10_search_operator.png"))
+        for i, (tick, tab) in enumerate([("tou", "production"), ("cnq", "formations"), ("wcp", "activity"), ("aav", "production")]):
+            await pg.goto(f"{BASE}/index.html#co={tick}")
+            await pg.reload()
+            await pg.wait_for_timeout(7000)
+            btn = await pg.query_selector(f".tabs button[data-t={tab}]")
+            if btn:
+                await btn.click()
+                await pg.wait_for_timeout(600)
+            await pg.screenshot(path=str(OUT / f"11_company_{tick}_{tab}.png"))
+        await pg.goto(f"{BASE}/index.html#@55.5,-117.5,6")
+        await pg.reload()
+        await pg.wait_for_timeout(5000)
+        await pg.click("#layersBtn")
+        await pg.check("#actT")
+        await pg.wait_for_timeout(3000)
+        await pg.screenshot(path=str(OUT / "12_activity_layer.png"))
         ph = await b.new_context(viewport={"width": 390, "height": 800}, is_mobile=True, has_touch=True)
         pp = await ph.new_page()
         if wells[0][1]:
