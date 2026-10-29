@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .. import fetch, locate
@@ -94,9 +95,13 @@ def collect(wells: pd.DataFrame, cache: Path, provinces: list[str], days: int = 
     need = ev["lat"].isna() & ev["location"].notna()
     if need.any():
         loc = ev.loc[need, "location"].map(locate.locate)
-        ev.loc[need, "lat"] = [x[0] for x in loc]
-        ev.loc[need, "lon"] = [x[1] for x in loc]
-        ev.loc[need, "loc_precision"] = [x[2] for x in loc]
+        f = lambda v: float(v) if v is not None else np.nan  # noqa: E731
+        ev["lat"] = pd.to_numeric(ev["lat"], errors="coerce").astype(float)
+        ev["lon"] = pd.to_numeric(ev["lon"], errors="coerce").astype(float)
+        ev["loc_precision"] = ev["loc_precision"].astype(object)
+        ev.loc[need, "lat"] = np.array([f(x[0]) for x in loc], dtype=float)
+        ev.loc[need, "lon"] = np.array([f(x[1]) for x in loc], dtype=float)
+        ev.loc[need, "loc_precision"] = pd.Series([x[2] for x in loc], index=loc.index, dtype=object)
     ev["date"] = pd.to_datetime(ev["date"], errors="coerce")
     ev = ev.dropna(subset=["date"])
     return ev[COLS].reset_index(drop=True), problems

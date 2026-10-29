@@ -65,7 +65,8 @@ class Resolver:
         for ticker, (name, target) in tickers.items():
             final = target or ticker
             fname = tickers.get(final, (name, None))[0]
-            co = Company(slug(final), fname, final)
+            private = bool(((data or {}).get(ticker) or {}).get("private"))
+            co = Company(slug(fname), fname, None) if private else Company(slug(final), fname, final)
             for alias in [name, ticker] + list(((data or {}).get(ticker) or {}).get("aliases") or []):
                 k = key(alias)
                 if k:

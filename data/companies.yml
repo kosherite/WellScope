@@ -7,19 +7,20 @@
 #
 # Every pipeline run writes site/data/unmatched_companies.json: the biggest names that aren't in this file yet.
 # Add them here (or open a pull request) to merge them.
+# Private companies (no listed ticker) use any unique key and `private: true`.
 
 TOU:
   name: Tourmaline Oil Corp.
   aliases: [Tourmaline, Tourmaline Oil]
 ARX:
   name: ARC Resources Ltd.
-  aliases: [ARC, ARC Resources]
+  aliases: [ARC, ARC Resources, ARCRES]
 WCP:
   name: Whitecap Resources Inc.
   aliases: [Whitecap, Whitecap Partnership, Veren Inc., Crescent Point Energy Corp., Crescent Point Resources Partnership]
 CNQ:
   name: Canadian Natural Resources Limited
-  aliases: [CNRL, Canadian Natural, Canadian Natural Resources]
+  aliases: [CNRL, Canadian Natural, Canadian Natural Resources, Canadian Natural Upgrading Limited]
 CVE:
   name: Cenovus Energy Inc.
   aliases: [Cenovus, Husky Oil Operations Limited, Husky Energy Inc.]
@@ -117,3 +118,90 @@ CPG:
   name: Veren Inc.
   aliases: []
   merged_into: WCP
+
+# ---- listed elsewhere (TSX/NYSE parents of Canadian operators)
+IPCO:
+  name: International Petroleum Corp.
+  aliases: [IPC Canada, IPC Canada Ltd., International Petroleum]
+COP:
+  name: ConocoPhillips Canada
+  aliases: [ConocoPhillips Canada Resources Corp., ConocoPhillips Canada Resources, ConocoPhillips]
+GTE:
+  name: Gran Tierra Energy Inc.
+  aliases: [Gran Tierra Canada, Gran Tierra]
+MUR:
+  name: Murphy Oil Company Ltd.
+  aliases: [Murphy Oil, Murphy]
+CHRD:
+  name: Chord Energy (Enerplus)
+  aliases: [Enerplus, Enerplus Corporation]
+SHEL:
+  name: Shell Canada Limited
+  aliases: [Shell Canada, Shell Canada Energy]
+CVX:
+  name: Chevron Canada Limited
+  aliases: [Chevron Canada, Chevron Canada Resources]
+XOM:
+  name: ExxonMobil Canada Ltd.
+  aliases: [ExxonMobil Canada, ExxonMobil Canada Energy]
+BP:
+  name: BP Canada Energy Group ULC
+  aliases: [BP Canada Energy Group, BP Canada]
+
+# ---- private operators (merged spellings, no ticker)
+teine:
+  name: Teine Energy Ltd.
+  private: true
+  aliases: [Teine Energy, Teine]
+canlin:
+  name: Canlin Energy Corporation
+  private: true
+  aliases: [Canlin Energy, Canlin]
+ember:
+  name: Ember Resources Inc.
+  private: true
+  aliases: [Ember Resources, Ember]
+lynx:
+  name: Lynx Energy ULC
+  private: true
+  aliases: [Lynx Energy, Lynx]
+tundra:
+  name: Tundra Oil & Gas Limited
+  private: true
+  aliases: [Tundra, Tundra Oil and Gas, Tundra Oil & Gas Partnership]
+taqa:
+  name: TAQA North Ltd.
+  private: true
+  aliases: [TAQA North, TAQA]
+spur:
+  name: Spur Petroleum Ltd.
+  private: true
+  aliases: [Spur Petroleum, Spur]
+harvest:
+  name: Harvest Operations Corp.
+  private: true
+  aliases: [Harvest Operations, Harvest]
+petronas:
+  name: PETRONAS Energy Canada Ltd.
+  private: true
+  aliases: [Petronas, Petronas Canada, Progress Energy Canada Ltd., Progress Energy]
+cnooc:
+  name: CNOOC Petroleum North America ULC
+  private: true
+  aliases: [CNOOC Petroleum North America, CNOOC, Nexen Energy ULC, Nexen]
+sinopec:
+  name: Sinopec Canada Energy Ltd.
+  private: true
+  aliases: [Sinopec Canada Energy, Sinopec Canada, Sinopec Daylight Energy Ltd., Daylight Energy]
+karve:
+  name: Karve Energy Inc.
+  private: true
+  aliases: [Karve Energy, Karve]
+westlake:
+  name: West Lake Energy Corp.
+  private: true
+  aliases: [West Lake Energy, West Lake]
+owa:
+  name: Orphan Well Association
+  private: true
+  aliases: [Orphan, Orphan Well Association, OWA]
