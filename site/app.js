@@ -247,7 +247,29 @@ function productionChart(host, months, pr) {
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly production">
     ${[0, 0.5, 1].map((f) => `<line class="g" x1="${L}" x2="${W - R}" y1="${T + (H - T - B) * (1 - f)}" y2="${T + (H - T - B) * (1 - f)}"/>
       <text x="${L - 5}" y="${T + (H - T - B) * (1 - f) + 3}" text-anchor="end">${n(yl * f)}</text><text x="${W - R + 5}" y="${T + (H - T - B) * (1 - f) + 3}">${n(yr * f)}</text>`).join("")}
-    ${line(wat, y1, css("--svc"), "3 3")}${line(gas, y2, css("--gas"))}${line(oil, y1, css("--oil"))}${ticks}</svg>`;
+    ${line(wat, y1, css("--svc"), "3 3")}${line(gas, y2, css("--gas"))}${line(oil, y1, css("--oil"))}${ticks}
+    <g class="hover" style="display:none"><line class="guide" y1="${T}" y2="${H - B}" stroke="${css("--ink")}" stroke-dasharray="2 3"/>
+      <circle class="d-oil" r="3" fill="${css("--oil")}"/><circle class="d-gas" r="3" fill="${css("--gas")}"/><circle class="d-wat" r="3" fill="${css("--svc")}"/></g>
+    <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" class="hit"/></svg>
+    <div class="ctip" hidden></div>`;
+  // Hover (or touch-drag) to read the month's rates
+  const svg = host.querySelector("svg"), hov = svg.querySelector(".hover"), tip = host.querySelector(".ctip");
+  const label = (m) => { const [yy, mm] = m.split("-").map(Number); return new Date(yy, mm - 1, 1).toLocaleString("en-CA", { month: "short", year: "numeric" }); };
+  const show = (clientX) => {
+    const r = svg.getBoundingClientRect(), px = (clientX - r.left) / r.width * W;
+    const i = Math.max(0, Math.min(k - 1, Math.round((px - L) / (W - L - R) * (k - 1))));
+    hov.style.display = "";
+    hov.querySelector(".guide").setAttribute("x1", x(i)); hov.querySelector(".guide").setAttribute("x2", x(i));
+    [["d-oil", oil, y1], ["d-gas", gas, y2], ["d-wat", wat, y1]].forEach(([c, a, y]) => { const d = hov.querySelector("." + c); d.setAttribute("cx", x(i)); d.setAttribute("cy", y(a[i])); });
+    tip.hidden = false;
+    tip.innerHTML = `<b>${label(months[i])}</b><span><i style="background:var(--oil)"></i>${n(oil[i], 1)} bbl/d oil</span><span><i style="background:var(--gas)"></i>${n(gas[i], 1)} mcf/d gas</span><span><i style="background:var(--svc)"></i>${n(wat[i], 1)} bbl/d water</span>`;
+    const left = (x(i) / W) * r.width;
+    tip.style.left = Math.max(0, Math.min(r.width - tip.offsetWidth, left - tip.offsetWidth / 2)) + "px";
+  };
+  const hide = () => { hov.style.display = "none"; tip.hidden = true; };
+  svg.addEventListener("pointermove", (e) => show(e.clientX));
+  svg.addEventListener("pointerdown", (e) => show(e.clientX));
+  svg.addEventListener("pointerleave", hide);
 }
 function copy(text, msg) {
   const done = () => toast(msg);
