@@ -137,7 +137,7 @@ CHRD:
   aliases: [Enerplus, Enerplus Corporation]
 SHEL:
   name: Shell Canada Limited
-  aliases: [Shell Canada, Shell Canada Energy]
+  aliases: [Shell Canada, Shell Canada Energy, Shell]
 CVX:
   name: Chevron Canada Limited
   aliases: [Chevron Canada, Chevron Canada Resources]
@@ -205,3 +205,24 @@ owa:
   name: Orphan Well Association
   private: true
   aliases: [Orphan, Orphan Well Association, OWA]
+PPR:
+  name: Prairie Provident Resources Inc.
+  aliases: [Prairie Provident Resources Canada, Prairie Provident]
+GFR:
+  name: Greenfire Resources Ltd.
+  aliases: [Greenfire Resources Operating, Greenfire]
+ROK:
+  name: ROK Resources Inc.
+  aliases: [ROK Resources, ROK]
+petrochina:
+  name: PetroChina Canada Ltd.
+  private: true
+  aliases: [PetroChina Canada, PetroChina]
+alphabow:
+  name: AlphaBow Energy Ltd.
+  private: true
+  aliases: [AlphaBow Energy, AlphaBow]
+longrun:
+  name: Long Run Exploration Ltd.
+  private: true
+  aliases: [Long Run Exploration, Long Run]

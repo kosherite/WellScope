@@ -1,0 +1,221 @@
+code,name
+0040,Cenozoic
+0050,Quaternary
+0100,Tertiary
+0175,Mesozoic
+0180,Cretaceous
+0200,Upper Cretaceous
+1300,Wapiti
+1350,Belly River
+1360,Wapiabi
+1365,Puskwaskau
+1368,Chinook
+1380,Bad Heart
+1390,Muskiki
+1398,Cardium Zone
+1400,Cardium Sand
+1405,Blackstone
+1410,Kaskapau
+1411,Second White Speckled Shale
+1412,First Petroliferous Shale
+1414,Second Petroliferous Shale
+1415,Pouce Coupe
+1420,Doe Creek
+1450,Fort Nelson
+1500,Dunvegan
+1530,Fort St. John
+1660,Sully
+1680,Sikanni
+1700,Shaftesbury
+1705,Lepine
+1710,Goodrich
+1713,Base of Fish Scales
+1715,Hasler
+1720,Buckinghorse
+1725,Gates
+1730,Scatter
+1740,Garbutt
+1800,Blairmore
+1850,Commotion
+1870,Moosebar
+2000,Paddy
+2200,Cadotte
+2220,Harmon
+2330,Peace River
+2350,Spirit River
+2400,Notikewin
+2500,Falher
+2505,Falher A
+2510,Falher B
+2515,Falher C
+2520,Falher D
+2525,Fourth Coal Measure
+2530,Falher E
+2535,Falher Sand
+2550,Wilrich
+2600,Bluesky
+2625,Basal Bluesky
+2630,Bluesky-Gething
+2640,Bluesky-Gething-Detrital
+2650,Detrital
+2690,Bullhead
+2692,Lower Blairmore
+2700,Gething
+2703,Aitken Creek
+2705,Lower Bullhead
+2710,Lower Gething
+2720,Basal Gething
+2750,Long Arm
+2775,Lower Gething/Upper Dunlevy
+2785,Gething/Baldonnel
+2800,Cadomin
+2805,Chinkeh
+2830,Basal Cretaceous Sandstone
+2835,Minnes
+2836,Bickford
+2837,Monach
+2838,Beattie Peaks
+2839,Montieth
+2840,Kootney
+2850,Nikanassin
+2890,Buick Creek
+2900,Dunlevy
+2910,Lower Dunlevy
+2920,Jurassic
+2950,Fernie
+3000,Passage Beds
+3200,Nordegg
+4000,Triassic
+4040,Nordegg-Baldonnel
+4046,Bocock
+4050,Pardonet
+4060,Pardonet-Baldonnel
+4090,Schooler Creek
+4100,Baldonnel
+4150,Baldonnel/Upper Charlie Lake
+4500,Charlie Lake
+4505,First Brown Marker
+4507,Owl
+4510,Siphon
+4512,Two Rivers
+4520,Cecil
+4524,Red Creek
+4530,Nancy
+4532,Second Brown Marker
+4533,Flatrock
+4535,Boundary Lake
+4536,Basal Boundary
+4540,Coplin
+4542,Septimus
+4545,Mica
+4547,La Glace
+4550,Kobes
+4560,Blueberry
+4570,Farrell
+4571,Groundbirch
+4575,Inga
+4578,Coffee Creek
+4580,North Pine
+4582,Bear Flat
+4585,Wilder
+4590,Pingel
+4595,Kern
+4612,Lower Charlie Lake Sands
+4700,Artex
+4705,Dale
+4710,Coldstream
+4750,Liard
+4790,Halfway A
+4792,Halfway B
+4794,Halfway C
+4798,Upper Halfway
+4800,Halfway
+4802,Triassic D
+4805,Lower Halfway
+4890,Daiber
+4900,Doig
+4905,Doig Sand
+4910,Toad Grayling
+4920,Toad
+4930,Grayling
+4950,Spray River
+4980,Doig Phosphate Beds
+4990,Bluesky-Gething-Montney
+4995,Lower Charlie Lake/Montney
+5000,Montney
+5999,Paleozoic
+6000,Permian
+6200,Belloy
+6210,Fantasque
+6222,Lower Belloy
+6225,Belcourt
+6250,Belloy-Kiskatinaw
+6260,Stoddart
+6295,Upper Taylor Flat
+6300,Taylor Flat
+6305,Lower Taylor Flat
+7000,Mississippian
+7100,Mattson
+7200,Upper Kiskatinaw
+7250,Kiskatinaw
+7300,Lower Kiskatinaw
+7340,Basal Kiskatinaw
+7350,Golata
+7386,Prophet
+7390,Upper Debolt
+7400,Debolt
+7405,Rundle
+7420,Lower Debolt
+7450,Elkton
+7500,Shunda
+7600,Pekisko
+7700,Banff
+7710,Exshaw
+7730,Besa River
+8000,Devonian
+8070,Upper Devonian
+8090,Kotcho
+8100,Wabamun
+8125,Tetcho
+8130,Trout River
+8135,Winterburn
+8150,Kakisa
+8190,Nisku
+8200,Jean Marie
+8210,Hay River
+8220,Redknife
+8270,Woodbend
+8271,Ireton
+8275,Leduc
+8280,Fort Simpson
+8285,Horn River
+8288,Duvernay
+8290,Muskwa
+8300,Muskwa-Otter Park-Slave Point
+8340,Beaverhill Lake
+8390,Middle Devonian
+8395,Otter Park
+8400,Slave Point
+8425,Slave Point - Pine Point
+8430,Elk Point
+8440,Watt Mountain
+8450,Gilwood
+8460,Presqu'ile
+8500,Sulphur Point
+8510,Klua
+8528,Upper Keg River
+8530,Muskeg
+8540,Keg River
+8550,Evie
+8560,Lower Keg River
+8580,Nahanni
+8600,Pine Point
+8620,Lower Pine Point
+8640,Upper Chinchaga
+8660,Chinchaga
+8700,Lower Chinchaga
+8752,Pre-Devonian
+8770,Silurian
+8900,Ordovician
+9050,Cambrian
+9900,Precambrian

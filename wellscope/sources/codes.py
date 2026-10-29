@@ -35,3 +35,19 @@ def ab_field_pool(cache: Path) -> tuple[dict, dict]:
     LAST.update(fields=len(fields), pools=len(pools), columns=list(df.columns)[:12], head=df.head(3).astype(str).values.tolist())
     print(f"  pool codes: {len(fields):,} fields, {len(pools):,} pools; columns {list(df.columns)[:8]}")
     return fields, pools
+
+
+def ab_formation_prefixes(pools: dict) -> dict:
+    """AB pool codes are a 4-digit formation code + 3-digit pool number. Name each formation code after the most
+    common pool name with its trailing pool letter/number removed ("BASAL BELLY RIVER A" -> "BASAL BELLY RIVER")."""
+    import re
+    from collections import Counter
+    votes: dict[str, Counter] = {}
+    for k, name in pools.items():
+        code = k[1] if isinstance(k, tuple) else k
+        if not isinstance(name, str) or not str(code).isdigit():
+            continue
+        base = re.sub(r"\s+([A-Z]{1,2}\d*|\d+[A-Z]?|NO\.?\s*\d+)$", "", name.strip().upper()).strip()
+        if base and "COMMINGLED" not in base:
+            votes.setdefault(str(code).zfill(7)[:4], Counter())[base] += 1
+    return {k: c.most_common(1)[0][0] for k, c in votes.items()}

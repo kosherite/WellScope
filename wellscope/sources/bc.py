@@ -48,6 +48,10 @@ def wells(cache: Path) -> pd.DataFrame:
         # BC doesn't publish bottom-hole coordinates in the index, but horizontal wells carry "HZ" in their name
         "horizontal": name.fillna("").str.upper().str.contains(r"\bHZ\b", regex=True),
     })
+    # numeric formation codes -> names (BC stratigraphic code list, data/bc_formation_codes.csv)
+    names = bc_formation_names()
+    code = out["formation"].astype("string").str.strip().str.zfill(4)
+    out["formation"] = code.map(names).where(code.map(names).notna(), out["formation"])
     return finish_wells(out, "BC")
 
 
@@ -114,3 +118,11 @@ def production(cache: Path, months: list[str]) -> pd.DataFrame:
     if not parts:
         raise RuntimeError(f"No BC production rows on or after {months[0]}")
     return finish_production(pd.concat(parts, ignore_index=True), "BC")
+
+
+def bc_formation_names() -> dict:
+    f = Path(__file__).resolve().parent.parent.parent / "data" / "bc_formation_codes.csv"
+    if not f.exists():
+        return {}
+    df = pd.read_csv(f, dtype=str)
+    return dict(zip(df["code"].str.zfill(4), df["name"]))

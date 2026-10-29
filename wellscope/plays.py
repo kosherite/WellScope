@@ -17,6 +17,9 @@ PLAYS = [
     ("Charlie Lake", ["CHARLIE LAKE", "BOUNDARY LAKE"]),
     ("Spirit River (Deep Basin)", ["SPIRIT RIVER", "FALHER", "WILRICH", "NOTIKEWIN", "BLUESKY", "GETHING", "CADOMIN", "CADOTTE"]),
     ("Belly River", ["BELLY RIVER"]),
+    ("Jean Marie (Redknife)", ["JEAN MARIE", "REDKNIFE"]),
+    ("Horn River (Muskwa / Otter Park / Evie)", ["MUSKWA", "OTTER PARK", "EVIE", "HORN RIVER"]),
+    ("Baldonnel", ["BALDONNEL", "PARDONET"]),
     ("Doig / Halfway", ["DOIG", "HALFWAY"]),
     ("Horseshoe Canyon (CBM)", ["HORSESHOE CANYON", "EDMONTON", "MANNVILLE COAL"]),
     ("Glauconitic / Mannville", ["GLAUCONITIC", "GLAUC", "ELLERSLIE", "OSTRACOD", "LLOYDMINSTER", "SPARKY", "GENERAL PETROLEUM",
@@ -37,7 +40,7 @@ def play(name, province: str | None = None) -> str | None:
     s = str(name).strip().upper()
     if not s or s in ("NAN", "<NA>", "NONE", "NOT APPLICABLE"):
         return None
-    if s.startswith("COMMINGLED") or s.startswith("CMGL"):
+    if s.startswith("COMMINGLED") or s.startswith("CMGL") or "COMMINGLED CODE" in s:
         return "Commingled (several zones)"
     for label, keys in PLAYS:
         if any(k in s for k in keys):

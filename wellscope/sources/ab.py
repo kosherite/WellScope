@@ -81,6 +81,10 @@ def wells(cache: Path) -> pd.DataFrame:
         pcode = out["formation"].astype("string").str.strip().str.lstrip("0")
         fname = fcode.map(fields)
         pname = pd.Series([pools.get((f, p_), pools.get(p_)) for f, p_ in zip(fcode, pcode)], index=out.index)
+        # undefined pools (xxxx098) and pools missing from the report: name by the 4-digit formation prefix
+        prefix = codes.ab_formation_prefixes(pools)
+        pre = pcode.str.zfill(7).str[:4].map(prefix)
+        pname = pname.where(pname.notna(), pre)
         out["field"] = fname.where(fname.notna(), out["field"])
         codes.LAST.update(matched_pools=float(pname.notna().mean()), sample_codes=pcode.dropna().head(5).tolist())
         out["formation"] = pname.where(pname.notna(), out["formation"])

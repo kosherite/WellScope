@@ -198,6 +198,8 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
     co_meta = {c.id: c for c in resolved.values()}
     w["licensee"] = w["co"].map(lambda i: co_meta[i].name)
     w["play"] = [play(f, pv) for f, pv in zip(w["formation"], w["province"])]
+    thermal = w["status"].astype(str).str.upper().str.contains("STEAM|CYCLICAL|SAGD|THERMAL", regex=True)
+    w.loc[w["play"].isna() & thermal, "play"] = "Oil sands (in situ)"
     ops = (w.groupby("co").agg(wells=("uwi", "size"), producing=("boe", lambda s: int((s > 0).sum())),
                                s=("lat", "min"), n_=("lat", "max"), wst=("lon", "min"), e=("lon", "max"), boe=("boe", "sum"))
              .sort_values("wells", ascending=False).reset_index())
