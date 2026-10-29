@@ -82,6 +82,7 @@ def wells(cache: Path) -> pd.DataFrame:
         fname = fcode.map(fields)
         pname = pd.Series([pools.get((f, p_), pools.get(p_)) for f, p_ in zip(fcode, pcode)], index=out.index)
         out["field"] = fname.where(fname.notna(), out["field"])
+        codes.LAST.update(matched_pools=float(pname.notna().mean()), sample_codes=pcode.dropna().head(5).tolist())
         out["formation"] = pname.where(pname.notna(), out["formation"])
     return finish_wells(out, "AB")
 

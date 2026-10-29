@@ -37,6 +37,8 @@ def play(name, province: str | None = None) -> str | None:
     s = str(name).strip().upper()
     if not s or s in ("NAN", "<NA>", "NONE", "NOT APPLICABLE"):
         return None
+    if s.startswith("COMMINGLED") or s.startswith("CMGL"):
+        return "Commingled (several zones)"
     for label, keys in PLAYS:
         if any(k in s for k in keys):
             return label

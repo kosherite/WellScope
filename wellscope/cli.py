@@ -70,6 +70,17 @@ def cmd_run(a) -> int:
                 miss = wl[~wl.isin(set(wells[-1]["uwi"]))].drop_duplicates()
                 diag[prov].append(f"UNMATCHED {len(miss):,} ids, e.g. {miss.sample(min(15, len(miss)), random_state=1).tolist()}")
             prods.append(p)
+            if wells and wells[-1]["province"].iloc[0] == prov:
+                from .plays import play as _play
+                ww = wells[-1][wells[-1]["uwi"].isin(set(wl))]
+                fm = ww["formation"].astype("string")
+                pl = fm.map(lambda f: _play(f, prov))
+                diag[prov].append(f"FORMATIONS producing wells {len(ww):,}; with formation {fm.notna().mean():.1%}; "
+                                  f"top raw {fm.value_counts().head(12).to_dict()}; top plays {pl.value_counts().head(12).to_dict()}; "
+                                  f"null by status {ww.loc[fm.isna(), 'status'].astype(str).value_counts().head(6).to_dict()}")
+            if prov == "AB":
+                from .sources import codes as _codes
+                diag[prov].append(f"POOL CODES {_codes.LAST}")
         except Exception as e:
             problems[f"{prov} production"] = repr(e)
             notice(f"{prov} production FAILED", traceback.format_exc()[-1500:], "warning")
