@@ -12,7 +12,8 @@ const dark = () => document.documentElement.dataset.theme === "dark" || (documen
 let HAS_CO = false, META = null, OPS = [], map, selected = null, opFilter = null;
 const hidden = new Set();
 const cache = new Map();
-const getJSON = (p) => { if (!cache.has(p)) cache.set(p, fetch("data/" + p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })); return cache.get(p); };
+const DATA = document.querySelector('meta[name="wellscope-data"]')?.content || "data/";   // "../data/" on /staging/
+const getJSON = (p) => { if (!cache.has(p)) cache.set(p, fetch(DATA + p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })); return cache.get(p); };
 
 // ------------------------------------------------------------------ well symbols (drawn once, used on the map, legend and panel)
 const SYM = ["oil", "gas", "oil_susp", "gas_susp", "aband", "dry", "service", "pre", "other"];
@@ -84,7 +85,7 @@ function applyFilters() {
 }
 
 function addWellLayers() {
-  const url = "pmtiles://" + new URL("data/wells.pmtiles", location.href).href;
+  const url = "pmtiles://" + new URL(DATA + "wells.pmtiles", location.href).href;
   map.addSource("w", { type: "vector", url, attribution: "Wells: AER, Petrinex, BCER, Manitoba Petroleum Branch" });
   SYM.forEach((s) => map.addImage(s, drawIcon(s), { pixelRatio: 2 }));
   map.addLayer({ id: "laterals", type: "line", source: "w", "source-layer": "laterals", minzoom: 9.5,
@@ -400,6 +401,7 @@ function readHash() {
 
 // ------------------------------------------------------------------ start
 (async function start() {
+  if (DATA !== "data/") { document.body.classList.add("staging"); document.title = "WellScope (test)"; }
   try { [META, OPS] = await Promise.all([getJSON("meta.json"), getJSON("companies.json").then((c) => { HAS_CO = true; return c; }).catch(() => getJSON("operators.json"))]); LOC.setOffsets(await getJSON("grid_offsets.json").catch(() => ({}))); }
   catch (e) { document.body.insertAdjacentHTML("beforeend", `<div class="modal"><div class="sheet"><h2>No map data yet</h2><p>Run the pipeline (<span class="mono">python -m wellscope run</span>, or the "Build basin data" action) to create <span class="mono">site/data</span>.</p></div></div>`); return; }
   if (typeof maplibregl === "undefined" || typeof pmtiles === "undefined") { toast("The map library couldn't load. Check your connection and reload."); return; }

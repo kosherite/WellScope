@@ -20,8 +20,6 @@ on:
 
 permissions:
   contents: write        # to push screenshots of the built site to the ci-screenshots branch
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -105,20 +103,4 @@ jobs:
           path: data/build
           retention-days: 30
 
-      - uses: actions/configure-pages@v5
-        if: ${{ !inputs.probe_only && github.ref == 'refs/heads/main' }}
-      - uses: actions/upload-pages-artifact@v3
-        if: ${{ !inputs.probe_only && github.ref == 'refs/heads/main' }}
-        with:
-          path: site
-
-  deploy:
-    if: ${{ !inputs.probe_only && github.ref == 'refs/heads/main' }}
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      # Publishing is done by site.yml, which runs after this build succeeds on main.

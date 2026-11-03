@@ -1,12 +1,15 @@
-name: Publish website changes
+name: Publish website
 
-# Front-end edits shouldn't need a multi-hour data rebuild: reuse the latest pipeline's data,
-# or the committed pilot snapshot if the pipeline hasn't succeeded yet. Any successful pipeline run
-# counts, including test runs on the pipeline-test branch.
+# The only workflow that publishes the website. Two versions go out together on every publish:
+#   https://kosherite.github.io/WellScope/          live   = the main branch
+#   https://kosherite.github.io/WellScope/staging/  test   = the staging branch
+# Both read the same map data (the latest successful data build), so a front-end change can be tried on
+# /staging/ against real data, then promoted by merging staging into main.
+# Runs after CI passes on main or staging, after a data build on main, or by hand.
 on:
-  push:
-    branches: [main]
-    paths: ["site/**", ".github/workflows/site.yml"]
+  workflow_run:
+    workflows: ["CI", "Build basin data and publish site"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,16 +24,34 @@ concurrency:
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.head_branch == 'main' ||
+        (github.event.workflow_run.name == 'CI' && github.event.workflow_run.head_branch == 'staging')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Add the staging version under /staging/
+        run: |
+          if git fetch -q --depth 1 origin staging; then
+            mkdir -p /tmp/stg && git archive FETCH_HEAD site | tar -x -C /tmp/stg
+            rm -rf /tmp/stg/site/data site/staging && mv /tmp/stg/site site/staging
+            # staging reads the live data one folder up, and stays out of search engines
+            sed -i 's#<head>#<head>\n<meta name="wellscope-data" content="../data/">\n<meta name="robots" content="noindex">#' site/staging/index.html
+            echo "::notice title=Staging::published staging $(git rev-parse --short FETCH_HEAD) at /staging/"
+          else
+            echo "No staging branch yet"
+          fi
       - name: Use the latest full dataset if there is one
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           id=$(gh run list --workflow pipeline.yml --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
           if [ -n "$id" ] && gh run download "$id" -n site-data -D /tmp/site-data; then
-            rm -rf site/data && mv /tmp/site-data site/data && echo "Using data from pipeline run $id"
+            rm -rf site/data && mv /tmp/site-data site/data && echo "::notice title=Data::using data from pipeline run $id"
           else
             echo "No pipeline data yet; publishing the committed pilot snapshot"
           fi

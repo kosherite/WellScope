@@ -6,3 +6,11 @@
 
 `v1` is a fixed reference: nothing is committed to it. To run V1 again, check out the branch and run the pipeline,
 or compare any later change against it with `git diff v1 main`.
+
+## Test area (staging)
+
+- **Live:** https://kosherite.github.io/WellScope/ is the `main` branch.
+- **Test:** https://kosherite.github.io/WellScope/staging/ is the `staging` branch. It shows a yellow TEST tag and is hidden from search engines.
+
+Both use the same map data. Website changes go to `staging` first. Once they look right there, `staging` is merged into `main` to put them live.
+Data-pipeline changes are tried on the `pipeline-test` branch (a full build with screenshots, no publish) before they reach `main`.

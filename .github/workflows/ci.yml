@@ -12,4 +12,4 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
       - run: pytest -q
-      - run: node --check site/app.js
+      - run: for f in site/*.js; do node --check "$f"; done

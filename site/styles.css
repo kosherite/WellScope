@@ -175,3 +175,6 @@ h3.sub{margin:4px 0 0;font-size:14px}
 .actkey .ring{border:2px solid var(--accent)}.actkey .fill{background:var(--spud)}
 .pop{font:13px/1.45 var(--font);color:#151515}
 .maplibregl-popup-content{border-radius:12px;box-shadow:var(--shadow)}
+
+/* test version at /staging/ */
+.staging .brand::after{content:"TEST";font:700 11px var(--font);letter-spacing:.06em;background:#ffd27a;color:#151515;border-radius:6px;padding:2px 6px}
