@@ -98,6 +98,15 @@ def cmd_run(a) -> int:
         return 1
     W = pd.concat(wells, ignore_index=True) if wells else pd.DataFrame(columns=WELL_COLS)
     P = pd.concat(prods, ignore_index=True)
+    # One window for every province: a month only some provinces have would show as a false dip in company totals
+    # (Manitoba's yearly workbooks start before the window; provinces publish the latest month a few days apart).
+    start = pd.Period(months[0], "M").to_timestamp()
+    latest = P.groupby("province")["month"].max()
+    end = latest.min() if (latest.max() - latest.min()).days <= 62 else latest.max()
+    before = len(P)
+    P = P[(P["month"] >= start) & (P["month"] <= end)].reset_index(drop=True)
+    notice("Production window", f"{start:%Y-%m} to {end:%Y-%m}; latest by province {latest.dt.strftime('%Y-%m').to_dict()}; "
+                                f"dropped {before - len(P):,} rows outside the window")
     if a.parquet:
         Path(a.parquet).mkdir(parents=True, exist_ok=True)
         W.to_parquet(Path(a.parquet) / "wells.parquet", index=False)

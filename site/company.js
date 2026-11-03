@@ -61,7 +61,7 @@ function renderProduction(body, d) {
   const U = UNITS.unit("boe"), UL = UNITS.unit("liq");
   body.innerHTML = `
     <div class="ctiles">
-      <div class="ct t-lilac"><span>Production</span><b>${fmtK(now)}</b><small>${U}, last 3 months</small></div>
+      <div class="ct t-lilac"><span>Gross production, Canada</span><b>${fmtK(now)}</b><small>${U}, last 3 months</small></div>
       <div class="ct t-peach"><span>vs prior quarter</span><b>${pct(q > 0 ? (now / q - 1) * 100 : null, 1)}</b><small>${fmtK(q)} ${U} before</small></div>
       <div class="ct t-sky"><span>vs a year ago</span><b>${pct(y > 0 ? (now / y - 1) * 100 : null, 1)}</b><small>${fmtK(y)} ${U} then</small></div>
       <div class="ct t-mint"><span>Liquids</span><b>${liquids == null ? "–" : n(liquids) + "%"}</b><small>oil ${fmtK(last3(oil))} · cond ${fmtK(last3(cond))} ${UL}</small></div>
@@ -70,7 +70,7 @@ function renderProduction(body, d) {
     </div>
     <div class="chart" id="coChart"></div>
     <div class="key"><span><i style="background:var(--oil)"></i>Oil</span><span><i style="background:var(--cond)"></i>Condensate</span><span><i style="background:var(--gas)"></i>Gas (as oil equivalent, 6 mcf = 1 bbl)</span></div>
-    <p class="src">Gross volumes from every well the company is licensee of, through ${monthLabel(M[k - 1])}. Companies report their working-interest share, so these won't match reported production exactly. Plant NGLs aren't reported at the well level.</p>`;
+    <p class="src"><b>How this compares with company reports.</b> These are gross volumes measured at the wellhead for every Canadian well the company holds the licence for, through ${monthLabel(M[k - 1])}. Company results are usually lower and differ in three ways: they report only their share net of partners and royalties; they include assets outside Canada; and gas is reported after processing, with the liquids stripped out at gas plants (NGLs and plant condensate) counted as liquids. That is why liquids look low here: they are still inside the raw gas.</p>`;
   stackedChart($("#coChart"), M, [["Oil", conv("boe", oilD), css("--oil")], ["Condensate", conv("boe", condD), css("--cond")], ["Gas", conv("boe", gasD.map((g) => g / 6)), css("--gas")]], U,
     (i) => `<span>${n(wells[i])} producing wells · gas ${fmtK(gasBig[i])} ${UNITS.bigGasUnit()}</span>`);
 }
