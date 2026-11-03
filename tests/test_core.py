@@ -251,4 +251,6 @@ def test_categories_are_short_and_use_targets():
     assert category("Dodsland Viking Sand Pool", "SK") == "Viking"
     assert category("Lodgepole A", "MB") == "Lodgepole"
     assert category("Jean Marie", "BC") == "Jean Marie"
+    assert category("CHARLIE LAKE", "AB") == category("Charlie Lake", "BC") == "Charlie Lake / Baldonnel"
+    assert category("Dodsland Viking Sand Pool", "SK") == category("VIKING", "AB")
     assert all(len(v) <= 16 for v in CATEGORIES.values())

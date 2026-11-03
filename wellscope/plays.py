@@ -1,6 +1,7 @@
 """Group pool and formation names into the plays analysts talk about (Montney, Duvernay, Clearwater, Bakken...),
 then into a short, fixed list of categories per province (``category``).
 
+The same name means the same thing in every province, so a company's rows add up across provinces.
 Categories are named after formations and groups as the regulators list them (AER Table of Formations, BCER
 formation codes, Saskatchewan and Manitoba pool names); a few are the industry's names for a group of formations
 produced together (Deep Basin, shallow gas). Anything outside the list is "Other".
@@ -65,7 +66,7 @@ _AB = {
     "Montney": "Montney", "Duvernay": "Duvernay", "Spirit River (Deep Basin)": "Spirit River / Deep Basin",
     "Dunlevy / Nikanassin": "Spirit River / Deep Basin", "Cardium": "Cardium", "Viking": "Viking",
     "Clearwater": "Clearwater", "Glauconitic / Mannville": "Mannville", "Belly River": "Belly River",
-    "Charlie Lake": "Charlie Lake", "Baldonnel": "Charlie Lake", "Doig / Halfway": "Doig / Halfway",
+    "Charlie Lake": "Charlie Lake / Baldonnel", "Baldonnel": "Charlie Lake / Baldonnel", "Doig / Halfway": "Doig / Halfway",
     "Wabamun / Nisku / Leduc": "Devonian carbonates", "Jean Marie (Redknife)": "Devonian carbonates",
     "Mississippian (Midale / Frobisher)": "Mississippian", "Horseshoe Canyon (CBM)": "Shallow gas & CBM",
     "Medicine Hat / Milk River (shallow gas)": "Shallow gas & CBM", "Oil sands (in situ)": "Oil sands (in situ)",
@@ -76,14 +77,14 @@ _BC = {
     "Dunlevy / Nikanassin": "Spirit River / Deep Basin", "Jean Marie (Redknife)": "Jean Marie",
     "Doig / Halfway": "Doig / Halfway", "Charlie Lake": "Charlie Lake / Baldonnel", "Baldonnel": "Charlie Lake / Baldonnel",
     "Horn River (Muskwa / Otter Park / Evie)": "Horn River", "Wabamun / Nisku / Leduc": "Devonian carbonates",
-    "Mississippian (Midale / Frobisher)": "Mississippian (Debolt)", "Belly River": "Belly River",
+    "Mississippian (Midale / Frobisher)": "Mississippian", "Belly River": "Belly River",
 }
 _SK = {
     "Viking": "Viking", "Bakken / Three Forks": "Bakken / Three Forks",
-    "Mississippian (Midale / Frobisher)": "Mississippian (Midale / Frobisher)",
-    "Shaunavon / Upper Shaunavon": "Shaunavon", "Glauconitic / Mannville": "Mannville (heavy oil)",
-    "Medicine Hat / Milk River (shallow gas)": "Shallow gas (Milk River)", "Belly River": "Belly River",
-    "Oil sands (in situ)": "Mannville (heavy oil)",
+    "Mississippian (Midale / Frobisher)": "Mississippian",
+    "Shaunavon / Upper Shaunavon": "Shaunavon", "Glauconitic / Mannville": "Mannville",
+    "Medicine Hat / Milk River (shallow gas)": "Shallow gas & CBM", "Belly River": "Belly River",
+    "Oil sands (in situ)": "Mannville",
 }
 _MB = [("Bakken / Three Forks", ["BAKKEN", "TORQUAY", "THREE FORKS"]), ("Amaranth", ["AMARANTH"]),
        ("Lodgepole", ["LODGEPOLE"]), ("Mission Canyon", ["MISSION CANYON"])]
@@ -121,6 +122,6 @@ def category(formation, province: str | None, target=None, status=None) -> str:
         if t not in (None, COMMINGLED):
             return t
         if prov in ("AB", "SK") and status is not None and any(k in str(status).upper() for k in ("STEAM", "CYCLIC", "SAGD", "THERMAL")):
-            return "Oil sands (in situ)" if prov == "AB" else "Mannville (heavy oil)"
+            return "Oil sands (in situ)" if prov == "AB" else "Mannville"
         return OTHER
     return c

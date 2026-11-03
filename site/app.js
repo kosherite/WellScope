@@ -245,7 +245,7 @@ function renderWell() {
       <div><dt>${w.p === "BC" ? "Rig release" : "Spud date"}</dt><dd>${esc(w.sp || "–")}</dd></div>
       <div><dt>Total depth</dt><dd>${w.td ? n(w.td) + " m" : "–"}</dd></div>
       <div><dt>${w.sl ? "Surface location" : "Location"}</dt><dd class="mono">${esc(w.sl || locPart(w.d))}</dd></div>
-      <div><dt>Well status</dt><dd><span class="st"><img src="${ICONS[sym] || ICONS.other}" alt="">${esc(status)}${fluid && status === "Active" ? " · " + fluid : ""}</span>${w.sd ? ` <span class="muted">since ${esc(w.sd)}</span>` : ""}</dd></div>
+      <div><dt>Well status</dt><dd><span class="st"><img src="${ICONS[sym] || ICONS.other}" alt="">${esc(status)}${fluid && status === "Active" ? " · " + fluid : ""}</span>${w.sd ? `<br><small class="muted">since ${esc(w.sd)}</small>` : ""}</dd></div>
     </dl>
     <div class="actions">
       <a class="btn primary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${w.y},${w.x}">Directions</a>

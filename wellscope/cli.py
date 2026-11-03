@@ -62,6 +62,11 @@ def cmd_run(a) -> int:
             p = mod.production(cache, months)
             print(f"  {len(p):,} entity-months, {p['entity_id'].nunique():,} entities", flush=True)
             wl = p[p["entity_type"] == "well"]["entity_id"]
+            if prov == "AB" and wells and wells[-1]["province"].iloc[0] == "AB":
+                from .sources import ab as _ab
+                drop = wells[-1]["uwi"].isin(_ab.PETRINEX_ONLY - set(wl))
+                diag[prov].append(f"PETRINEX-ONLY wells kept {int(wells[-1]['uwi'].isin(_ab.PETRINEX_ONLY).sum() - drop.sum()):,}, dropped {int(drop.sum()):,}")
+                wells[-1] = wells[-1][~drop].reset_index(drop=True)
             matched = wl.isin(set(wells[-1]["uwi"])).mean() if wells and wells[-1]["province"].iloc[0] == prov and len(wl) else None
             diag[prov].append(f"PRODUCTION {len(p):,} entity-months; {p['entity_id'].nunique():,} entities; "
                                          f"well-level {p['entity_type'].eq('well').mean():.1%}; months {p['month'].min():%Y-%m} to "

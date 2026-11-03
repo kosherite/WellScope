@@ -26,6 +26,9 @@ def _read(z: zipfile.ZipFile, name: str, cols: list[str]) -> pd.DataFrame:
         return pd.read_excel(f, dtype=str, usecols=lambda c: c in cols, engine="openpyxl")
 
 
+PETRINEX_ONLY: set = set()   # wells added from Petrinex because ST37 lacks them; kept only if they report production
+
+
 def wells(cache: Path) -> pd.DataFrame:
     raw = fetch.download(SOURCES["AB"]["wells"], cache / "AB" / "ST_37_Excel.zip")
     with zipfile.ZipFile(raw) as z:
@@ -98,6 +101,7 @@ def wells(cache: Path) -> pd.DataFrame:
         out.loc[blank, "formation"] = have[blank].map(pool_of).where(have[blank].map(pool_of).notna(), out.loc[blank, "formation"])
         extra = px[px["uwi"].notna() & ~px["uwi"].isin(set(have.dropna()))]
         codes.LAST.update(petrinex_wells=len(px), added_from_petrinex=len(extra), filled_pools=int(blank.sum()))
+        PETRINEX_ONLY.clear(); PETRINEX_ONLY.update(extra["uwi"])
         out = pd.concat([out, extra], ignore_index=True)
     except Exception as e:
         codes.LAST.update(petrinex_wells_error=repr(e)[:300])
