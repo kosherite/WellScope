@@ -19,40 +19,12 @@ def _col(df: pd.DataFrame, name: str):
 
 
 def wells(cache: Path) -> pd.DataFrame:
-    df = petrinex.infra("SK", "Well Infrastructure", cache)
-    if "WellID" not in df.columns:
-        raise KeyError(f"SK Well Infrastructure has no WellID column; columns are {list(df.columns)}")
-    mode, typ = clean_str(_col(df, "WellStatusMode")), clean_str(_col(df, "WellStatusType"))
-    parts = ["WellLocationException", "WellLegalSubdivision", "WellSection", "WellTownship", "WellRange", "WellMeridian",
-             "WellEventSequence"]
-    uwi = df["WellID"]
-    if all(c in df.columns for c in parts):
-        n = {c: pd.to_numeric(df[c], errors="coerce") for c in parts[1:]}
-        le = df["WellLocationException"].astype(str).str.strip().str[-2:].str.zfill(2)
-        built = (le + "/" + n["WellLegalSubdivision"].astype("Int64").astype(str).str.zfill(2) + "-"
-                 + n["WellSection"].astype("Int64").astype(str).str.zfill(2) + "-"
-                 + n["WellTownship"].astype("Int64").astype(str).str.zfill(3) + "-"
-                 + n["WellRange"].astype("Int64").astype(str).str.zfill(2) + "W"
-                 + n["WellMeridian"].astype("Int64").astype(str) + "/"
-                 + n["WellEventSequence"].astype("Int64").astype(str).str[-1:])
-        ok = n["WellSection"].notna() & n["WellTownship"].notna() & n["WellRange"].notna()
-        uwi = built.where(ok, df["WellID"])
-    out = pd.DataFrame({
-        "uwi": uwi,
-        "well_name": clean_str(_col(df, "WellName")),
-        "licence": clean_str(_col(df, "LicenceNumber")),
-        "status_text": (clean_str(_col(df, "WellStatusFluid")).fillna("") + " " + mode.fillna("") + " " + typ.fillna(""))
-        .str.replace(r"\s+", " ", regex=True).str.strip().replace("", pd.NA),
-        "licensee": clean_str(_col(df, "LicenseeName")),
-        "status": mode.where(mode.notna(), typ),
-        "status_date": _col(df, "WellStatusDate"),
-        "fluid": clean_str(_col(df, "WellStatusFluid")),
-        "field": clean_str(_col(df, "FieldName")),
-        "formation": clean_str(_col(df, "PoolDepositName")),
-        "spud_date": _col(df, "SpudDate"),
-        "total_depth_m": _col(df, "FinalTotalDepth"),
-        "horizontal": clean_str(_col(df, "HorizontalDrill")).str.upper().isin(["Y", "YES", "TRUE"]).fillna(False),
-    })
+    out = petrinex.well_infra_frame(petrinex.infra("SK", "Well Infrastructure", cache))
+    try:
+        targets = petrinex.licence_targets("SK", cache)
+        out["target_formation"] = out["licence"].map(targets)
+    except Exception as e:  # a nicety: never fail the build over it
+        print(f"  SK licence targets unavailable: {e}")
     return finish_wells(out, "SK")
 
 

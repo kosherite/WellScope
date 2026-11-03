@@ -124,9 +124,9 @@ button,input{font:inherit;color:inherit}
   --lilac:#2a2442;--peach:#3a2a22;--sky:#1f2c3b;--mint:#1d3328;--butter:#353019;--rose:#3a2230}}
 :root[data-theme="dark"]{--brand-ring:#b4a4ff;--brand-dot:#ffd27a;--cond:#ffb85c;--spud:#ff7fbf;
   --lilac:#2a2442;--peach:#3a2a22;--sky:#1f2c3b;--mint:#1d3328;--butter:#353019;--rose:#3a2230}
-.brand .mark{display:block;flex:none}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .brand .mark rect{fill:#2e2a44}}
-:root[data-theme="dark"] .brand .mark rect{fill:#2e2a44}
+.brand .mark{display:block;flex:none;color:#14213d}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .brand .mark{color:#ffffff}}
+:root[data-theme="dark"] .brand .mark{color:#ffffff}
 
 /* ---------- company view */
 .panel.wide{width:540px}
@@ -162,8 +162,8 @@ h3.sub{margin:4px 0 0;font-size:14px}
 .ftable .up{color:var(--oil)}.ftable .down{color:var(--gas)}
 .ftable .bar{display:inline-block;width:34px;height:6px;background:var(--soft);border-radius:3px;margin-right:6px;vertical-align:middle;overflow:hidden}
 .ftable .bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
-.panel.wide:not(.full) .ftable th:nth-child(5),.panel.wide:not(.full) .ftable td:nth-child(5),
-.panel.wide:not(.full) .ftable th:nth-child(7),.panel.wide:not(.full) .ftable td:nth-child(7){display:none}
+
+
 .evlist{display:grid;gap:6px}
 .evlist button{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:8px 10px;cursor:pointer}
 .evlist button:hover{border-color:var(--ink)}
@@ -178,3 +178,18 @@ h3.sub{margin:4px 0 0;font-size:14px}
 
 /* test version at /staging/ */
 .staging .brand::after{content:"TEST";font:700 11px var(--font);letter-spacing:.06em;background:#ffd27a;color:#151515;border-radius:6px;padding:2px 6px}
+
+/* well panel header: name, then UWI */
+.ph h2.wname{font-family:var(--font);font-weight:800;font-size:19px;letter-spacing:-.01em}
+.ph h2.mono-t{font-family:var(--mono);font-weight:500}
+.uwi{display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:var(--muted);font-size:13.5px;margin-top:3px}
+.tag{background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:1px 9px;font-size:12px;font-weight:700;font-family:var(--font)}
+.st{display:inline-flex;align-items:center;gap:6px}
+.st img{width:16px;height:16px}
+.facts dd.mono{font-family:var(--mono);font-weight:500;font-size:.92em}
+.seg.two{grid-template-columns:1fr 1fr}
+.seg.two button{font-size:12.5px}
+.legendbtns{display:flex;gap:16px;font-size:13px}
+.ftable.simple td,.ftable.simple th{padding:7px 8px}
+.ftable tr.other td{color:var(--muted)}
+.ftable tr.other td b{font-weight:600}

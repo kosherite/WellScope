@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="WellScope">
+  <!-- App icon: navy tile, white fishbone multilateral, amber surface dot -->
+  <rect width="512" height="512" rx="116" fill="#14213d"/>
+  <svg x="96" y="96" width="320" height="320" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 4H3.7M8.3 4H22" stroke-width="1.2" opacity=".55"/>
+    <path d="M6 6.4V9C6 13 8 15 11 15H21.5M12 15L15 11.5M12 15L15 18.5M16.5 15L19.5 11.5M16.5 15L19.5 18.5"/>
+    <circle cx="6" cy="4" r="2.3" fill="#f0b54a" stroke="none"/>
+  </svg>
+</svg>

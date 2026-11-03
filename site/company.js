@@ -47,28 +47,32 @@ function renderCompany() {
   else renderActivity(body, d);
 }
 
-// ---- production
+// ---- production (data: bbl/d, mcf/d; shown in the units picked in Layers)
 function renderProduction(body, d) {
   if (!d.prod) { body.innerHTML = `<p class="muted">No reported production in the last ${d.months.length} months.</p>`; return; }
-  const { oil, cond, gas, wells } = d.prod, k = d.months.length;
-  const boe = oil.map((o, i) => o + cond[i] + gas[i] / 6);
+  const M = d.months, k = M.length, { wells } = d.prod;
+  const oilD = d.prod.oil, condD = d.prod.cond, gasD = d.prod.gas;
+  const boeD = oilD.map((o, i) => o + condD[i] + gasD[i] / 6);
+  const conv = (kind, arr) => UNITS.series(kind, arr, M);
+  const boe = conv("boe", boeD), oil = conv("liq", oilD), cond = conv("liq", condD), gasBig = gasD.map((g, i) => UNITS.bigGas(g, M[i]));
   const last3 = (a) => mean(a.slice(-3)), prev3 = (a) => mean(a.slice(-6, -3)), yago = (a) => mean(a.slice(-15, -12));
   const now = last3(boe), q = prev3(boe), y = yago(boe);
-  const liquids = now > 0 ? (last3(oil) + last3(cond)) / now * 100 : null;
+  const liquids = last3(boeD) > 0 ? (last3(oilD) + last3(condD)) / last3(boeD) * 100 : null;
+  const U = UNITS.unit("boe"), UL = UNITS.unit("liq");
   body.innerHTML = `
     <div class="ctiles">
-      <div class="ct t-lilac"><span>Production</span><b>${fmtK(now)}</b><small>boe/d, last 3 months</small></div>
-      <div class="ct t-peach"><span>vs prior quarter</span><b>${pct(q > 0 ? (now / q - 1) * 100 : null, 1)}</b><small>${fmtK(q)} boe/d before</small></div>
-      <div class="ct t-sky"><span>vs a year ago</span><b>${pct(y > 0 ? (now / y - 1) * 100 : null, 1)}</b><small>${fmtK(y)} boe/d then</small></div>
-      <div class="ct t-mint"><span>Liquids</span><b>${liquids == null ? "–" : n(liquids) + "%"}</b><small>oil ${fmtK(last3(oil))} · cond ${fmtK(last3(cond))} bbl/d</small></div>
-      <div class="ct t-butter"><span>Gas</span><b>${n(last3(gas) / 1000, 1)}</b><small>mmcf/d</small></div>
-      <div class="ct t-rose"><span>Producing wells</span><b>${n(wells[k - 1])}</b><small>in ${monthLabel(d.months[k - 1])}</small></div>
+      <div class="ct t-lilac"><span>Production</span><b>${fmtK(now)}</b><small>${U}, last 3 months</small></div>
+      <div class="ct t-peach"><span>vs prior quarter</span><b>${pct(q > 0 ? (now / q - 1) * 100 : null, 1)}</b><small>${fmtK(q)} ${U} before</small></div>
+      <div class="ct t-sky"><span>vs a year ago</span><b>${pct(y > 0 ? (now / y - 1) * 100 : null, 1)}</b><small>${fmtK(y)} ${U} then</small></div>
+      <div class="ct t-mint"><span>Liquids</span><b>${liquids == null ? "–" : n(liquids) + "%"}</b><small>oil ${fmtK(last3(oil))} · cond ${fmtK(last3(cond))} ${UL}</small></div>
+      <div class="ct t-butter"><span>Gas</span><b>${fmtK(last3(gasBig))}</b><small>${UNITS.bigGasUnit()}</small></div>
+      <div class="ct t-rose"><span>Producing wells</span><b>${n(wells[k - 1])}</b><small>in ${monthLabel(M[k - 1])}</small></div>
     </div>
     <div class="chart" id="coChart"></div>
-    <div class="key"><span><i style="background:var(--oil)"></i>Oil</span><span><i style="background:var(--cond)"></i>Condensate</span><span><i style="background:var(--gas)"></i>Gas (boe at 6:1)</span></div>
-    <p class="src">Gross volumes from every well the company is licensee of, per calendar day, through ${monthLabel(d.months[k - 1])}. Companies report their working-interest share, so these won't match reported production exactly. Plant NGLs aren't reported at the well level.</p>`;
-  stackedChart($("#coChart"), d.months, [["Oil", oil, css("--oil")], ["Condensate", cond, css("--cond")], ["Gas", gas.map((g) => g / 6), css("--gas")]], "boe/d",
-    (i) => `<span>${n(wells[i])} producing wells · gas ${n(gas[i] / 1000, 1)} mmcf/d</span>`);
+    <div class="key"><span><i style="background:var(--oil)"></i>Oil</span><span><i style="background:var(--cond)"></i>Condensate</span><span><i style="background:var(--gas)"></i>Gas (as oil equivalent, 6 mcf = 1 bbl)</span></div>
+    <p class="src">Gross volumes from every well the company is licensee of, through ${monthLabel(M[k - 1])}. Companies report their working-interest share, so these won't match reported production exactly. Plant NGLs aren't reported at the well level.</p>`;
+  stackedChart($("#coChart"), M, [["Oil", conv("boe", oilD), css("--oil")], ["Condensate", conv("boe", condD), css("--cond")], ["Gas", conv("boe", gasD.map((g) => g / 6)), css("--gas")]], U,
+    (i) => `<span>${n(wells[i])} producing wells · gas ${fmtK(gasBig[i])} ${UNITS.bigGasUnit()}</span>`);
 }
 
 function stackedChart(host, months, series, unit, extra) {
@@ -101,23 +105,24 @@ function stackedChart(host, months, series, unit, extra) {
   svg.addEventListener("pointerleave", () => { guide.style.display = "none"; tip.hidden = true; });
 }
 
-// ---- formations
+// ---- formations: a short list of recognised formations per province, everything else in "Other"
 function renderFormations(body, d) {
-  const rows = d.formations || [];
+  const merged = new Map();
+  (d.formations || []).forEach((r) => {
+    const key = ["Unassigned", "Commingled (several zones)"].includes(r.play) || /^Formation code/.test(r.play) ? "Other" : r.play;
+    const m = merged.get(key) || { play: key, boe: 0, prev_q: 0 };
+    m.boe += r.boe; m.prev_q += r.prev_q; merged.set(key, m);
+  });
+  const rows = [...merged.values()].filter((r) => r.boe > 0 || r.prev_q > 0).sort((a, b) => (a.play === "Other") - (b.play === "Other") || b.boe - a.boe);
   if (!rows.length) { body.innerHTML = `<p class="muted">No producing formations to show.</p>`; return; }
-  const total = rows.reduce((a, r) => a + r.boe, 0), dq = rows.reduce((a, r) => a + (r.boe - r.prev_q), 0);
-  const spark = (s) => { const mx = Math.max(...s, 1e-9), w = 80, h = 22; return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="M${s.map((v, i) => `${(i / Math.max(s.length - 1, 1) * w).toFixed(1)},${(h - 2 - v / mx * (h - 4)).toFixed(1)}`).join(" L")}" fill="none" stroke="${css("--accent")}" stroke-width="1.5"/></svg>`; };
+  const total = rows.reduce((a, r) => a + r.boe, 0), U = UNITS.unit("boe"), cv = (v) => UNITS.rate("boe", v);
   body.innerHTML = `
-    <p class="lead">Quarter over quarter the company moved <b>${pct(total - dq > 0 ? dq / (total - dq) * 100 : null, 1)}</b> (${dq >= 0 ? "+" : "−"}${fmtK(Math.abs(dq))} boe/d). Each row shows how much of that came from the formation.</p>
-    <div class="tablewrap"><table class="ftable"><thead><tr><th>Formation</th><th class="n">boe/d</th><th class="n">Share</th><th class="n">vs prior qtr</th><th class="n">Share of change</th><th class="n">vs year ago</th><th class="n">Liquids</th><th class="n">Wells</th><th>36 months</th></tr></thead>
-    <tbody>${rows.slice(0, 25).map((r) => { const ch = r.boe - r.prev_q; return `<tr>
-      <td><b>${esc(r.play)}</b></td><td class="n">${fmtK(r.boe)}</td>
+    <div class="tablewrap"><table class="ftable simple"><thead><tr><th>Formation</th><th class="n">${U}</th><th class="n">Share</th><th class="n">vs prior quarter</th></tr></thead>
+    <tbody>${rows.map((r) => { const ch = r.boe - r.prev_q; return `<tr class="${r.play === "Other" ? "other" : ""}">
+      <td><b>${esc(r.play)}</b></td><td class="n">${fmtK(cv(r.boe))}</td>
       <td class="n"><span class="bar"><i style="width:${total ? r.boe / total * 100 : 0}%"></i></span>${total ? n(r.boe / total * 100) : 0}%</td>
-      <td class="n ${ch > 0 ? "up" : ch < 0 ? "down" : ""}">${pct(r.prev_q > 0 ? (r.boe / r.prev_q - 1) * 100 : null, 1)}</td>
-      <td class="n">${dq ? n(ch / Math.abs(dq) * 100) + "%" : "–"}</td>
-      <td class="n">${pct(r.year_ago > 0 ? (r.boe / r.year_ago - 1) * 100 : null, 1)}</td>
-      <td class="n">${r.liquids_pct == null ? "–" : r.liquids_pct + "%"}</td><td class="n">${n(r.wells)}</td><td>${spark(r.series)}</td></tr>`; }).join("")}</tbody></table></div>
-    <p class="src">Last three months against the three before them, and against the same three months a year earlier. Formations come from each well's pool; wells reporting production but missing from the well lists show as Unassigned. Commingled means a well producing from several zones at once, which Alberta reports as a single pool.</p>`;
+      <td class="n ${ch > 0 ? "up" : ch < 0 ? "down" : ""}">${pct(r.prev_q > 0 ? (r.boe / r.prev_q - 1) * 100 : null, 1)}</td></tr>`; }).join("")}</tbody></table></div>
+    <p class="src">Last three months, against the three before them. Formations are named as the provincial regulators list them. Other covers smaller formations, wells producing from several zones whose target isn't recorded, and wells missing from the well lists.</p>`;
 }
 
 // ---- activity

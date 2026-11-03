@@ -71,12 +71,12 @@ def cmd_run(a) -> int:
                 diag[prov].append(f"UNMATCHED {len(miss):,} ids, e.g. {miss.sample(min(15, len(miss)), random_state=1).tolist()}")
             prods.append(p)
             if wells and wells[-1]["province"].iloc[0] == prov:
-                from .plays import play as _play
+                from .plays import category as _cat
                 ww = wells[-1][wells[-1]["uwi"].isin(set(wl))]
                 fm = ww["formation"].astype("string")
-                pl = fm.map(lambda f: _play(f, prov))
+                pl = pd.Series([_cat(f, prov, t, st) for f, t, st in zip(ww["formation"], ww["target_formation"], ww["status"])])
                 diag[prov].append(f"FORMATIONS producing wells {len(ww):,}; with formation {fm.notna().mean():.1%}; "
-                                  f"top raw {fm.value_counts().head(12).to_dict()}; top plays {pl.value_counts().head(12).to_dict()}; "
+                                  f"top raw {fm.value_counts().head(12).to_dict()}; with target {ww['target_formation'].notna().mean():.1%}; categories {pl.value_counts().head(12).to_dict()}; "
                                   f"null by status {ww.loc[fm.isna(), 'status'].astype(str).value_counts().head(6).to_dict()}")
             if prov == "AB":
                 from .sources import codes as _codes

@@ -76,18 +76,43 @@ def wells(cache: Path) -> pd.DataFrame:
     })
     # numeric field/pool codes -> names (Petrinex code report); keep the code if a name isn't found
     fields, pools = codes.ab_field_pool(cache)
+    prefix = codes.ab_formation_prefixes(pools) if pools else {}
     if fields or pools:
         fcode = out["field"].astype("string").str.strip().str.lstrip("0")
         pcode = out["formation"].astype("string").str.strip().str.lstrip("0")
         fname = fcode.map(fields)
         pname = pd.Series([pools.get((f, p_), pools.get(p_)) for f, p_ in zip(fcode, pcode)], index=out.index)
         # undefined pools (xxxx098) and pools missing from the report: name by the 4-digit formation prefix
-        prefix = codes.ab_formation_prefixes(pools)
         pre = pcode.str.zfill(7).str[:4].map(prefix)
         pname = pname.where(pname.notna(), pre)
         out["field"] = fname.where(fname.notna(), out["field"])
         codes.LAST.update(matched_pools=float(pname.notna().mean()), sample_codes=pcode.dropna().head(5).tolist())
         out["formation"] = pname.where(pname.notna(), out["formation"])
+    # Petrinex Well Infrastructure: add producing strings missing from ST37 and fill blank pools
+    try:
+        px = petrinex.well_infra_frame(petrinex.infra("AB", "Well Infrastructure", cache))
+        px["uwi"] = px["uwi"].map(canon_uwi)
+        have = out["uwi"].map(canon_uwi)
+        pool_of = px.dropna(subset=["uwi", "formation"]).drop_duplicates("uwi").set_index("uwi")["formation"]
+        blank = out["formation"].isna() | out["formation"].astype("string").str.fullmatch(r"\d+", na=False)
+        out.loc[blank, "formation"] = have[blank].map(pool_of).where(have[blank].map(pool_of).notna(), out.loc[blank, "formation"])
+        extra = px[px["uwi"].notna() & ~px["uwi"].isin(set(have.dropna()))]
+        codes.LAST.update(petrinex_wells=len(px), added_from_petrinex=len(extra), filled_pools=int(blank.sum()))
+        out = pd.concat([out, extra], ignore_index=True)
+    except Exception as e:
+        codes.LAST.update(petrinex_wells_error=repr(e)[:300])
+    # licence target formation (used when the pool is commingled or unknown); AER formation codes -> names
+    try:
+        targets = petrinex.licence_targets("AB", cache)
+        tf = out["licence"].astype("string").str.lstrip("0").map(targets)
+        if fields or pools:
+            num = tf.astype("string").str.fullmatch(r"\d{3,4}", na=False)
+            tf = tf.where(~num, tf.astype("string").str.zfill(4).map(prefix))
+        out["target_formation"] = tf
+        codes.LAST.update(licence_targets=len(targets), with_target=float(tf.notna().mean()),
+                          sample_targets=pd.Series(list(targets.values())).value_counts().head(8).to_dict())
+    except Exception as e:
+        codes.LAST.update(licence_targets_error=repr(e)[:300])
     return finish_wells(out, "AB")
 
 

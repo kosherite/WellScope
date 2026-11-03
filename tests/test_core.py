@@ -240,3 +240,15 @@ def test_company_pages_and_activity(tmp_path):
     act = json.loads((tmp_path / "s" / "activity.json").read_text())
     assert len(act["rows"]) == 2 and {r[2] for r in act["rows"]} == {"L", "S"}
     assert meta["counts"]["companies_with_pages"] >= 2
+
+
+def test_categories_are_short_and_use_targets():
+    from wellscope.plays import CATEGORIES, category
+    assert category("MONTNEY A", "AB") == "Montney"
+    assert category("COMMINGLED MFP9501", "AB", "CARDIUM") == "Cardium"
+    assert category("COMMINGLED MFP9501", "AB") == "Other"
+    assert category(None, "AB", None, "STEAM ASSIS GRAVITY DRAIN") == "Oil sands (in situ)"
+    assert category("Dodsland Viking Sand Pool", "SK") == "Viking"
+    assert category("Lodgepole A", "MB") == "Lodgepole"
+    assert category("Jean Marie", "BC") == "Jean Marie"
+    assert all(len(v) <= 16 for v in CATEGORIES.values())

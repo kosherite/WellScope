@@ -89,3 +89,61 @@ def infra(jur: str, name: str, cache: Path) -> pd.DataFrame:
     raw = cache / jur / "infra" / f"{name.replace(' ', '_')}.bin"
     fetch.download(PETRINEX_INFRA.format(jur=jur, name=name.replace(" ", "%20")), raw)
     return fetch.read_table(fetch.unzip_bytes(raw.read_bytes()))
+
+
+def _c(df: pd.DataFrame, name: str):
+    return df[name] if name in df.columns else pd.Series(pd.NA, index=df.index)
+
+
+def well_infra_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Petrinex Well Infrastructure (same layout for AB and SK) -> the standard well columns (before finish_wells)."""
+    from ..schema import clean_str
+    if "WellID" not in df.columns:
+        raise KeyError(f"Well Infrastructure has no WellID column; columns are {list(df.columns)}")
+    mode, typ = clean_str(_c(df, "WellStatusMode")), clean_str(_c(df, "WellStatusType"))
+    parts = ["WellLocationException", "WellLegalSubdivision", "WellSection", "WellTownship", "WellRange", "WellMeridian",
+             "WellEventSequence"]
+    uwi = df["WellID"]
+    if all(c in df.columns for c in parts):
+        n = {c: pd.to_numeric(df[c], errors="coerce") for c in parts[1:]}
+        le = df["WellLocationException"].astype(str).str.strip().str[-2:].str.zfill(2)
+        built = (le + "/" + n["WellLegalSubdivision"].astype("Int64").astype(str).str.zfill(2) + "-"
+                 + n["WellSection"].astype("Int64").astype(str).str.zfill(2) + "-"
+                 + n["WellTownship"].astype("Int64").astype(str).str.zfill(3) + "-"
+                 + n["WellRange"].astype("Int64").astype(str).str.zfill(2) + "W"
+                 + n["WellMeridian"].astype("Int64").astype(str) + "/"
+                 + n["WellEventSequence"].astype("Int64").astype(str).str[-1:])
+        ok = n["WellSection"].notna() & n["WellTownship"].notna() & n["WellRange"].notna()
+        uwi = built.where(ok, df["WellID"])
+    return pd.DataFrame({
+        "uwi": uwi,
+        "well_name": clean_str(_c(df, "WellName")),
+        "licence": clean_str(_c(df, "LicenceNumber")).str.lstrip("0"),
+        "status_text": (clean_str(_c(df, "WellStatusFluid")).fillna("") + " " + mode.fillna("") + " " + typ.fillna(""))
+        .str.replace(r"\s+", " ", regex=True).str.strip().replace("", pd.NA),
+        "licensee": clean_str(_c(df, "LicenseeName")),
+        "status": mode.where(mode.notna(), typ),
+        "status_date": _c(df, "WellStatusDate"),
+        "fluid": clean_str(_c(df, "WellStatusFluid")),
+        "field": clean_str(_c(df, "FieldName")),
+        "formation": clean_str(_c(df, "PoolDepositName")),
+        "spud_date": _c(df, "SpudDate"),
+        "total_depth_m": _c(df, "FinalTotalDepth"),
+        "horizontal": clean_str(_c(df, "HorizontalDrill")).str.upper().isin(["Y", "YES", "TRUE"]).fillna(False),
+    })
+
+
+def licence_targets(jur: str, cache: Path) -> dict:
+    """{licence number: target formation} from the Petrinex Well Licence list (terminating, else projected formation)."""
+    df = infra(jur, "Well Licence", cache)
+    lic = fetch.pick(df, "Licence Number", "LicenceNumber", required=False)
+    tf = [c for c in (fetch.pick(df, x, required=False) for x in ("Terminating Formation", "TerminatingFormation",
+                                                                   "Projected Formation", "ProjectedFormation")) if c]
+    if not lic or not tf:
+        return {}
+    val = df[tf[0]].astype("string").str.strip()
+    for c in tf[1:]:
+        val = val.where(val.notna() & (val != ""), df[c].astype("string").str.strip())
+    key = df[lic].astype("string").str.strip().str.lstrip("0")
+    ok = key.notna() & val.notna() & (val != "")
+    return dict(zip(key[ok], val[ok]))

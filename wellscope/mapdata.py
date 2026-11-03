@@ -26,7 +26,7 @@ import pandas as pd
 from . import locate
 from .config import E3M3_TO_MCF, M3_TO_BBL
 from .companies import Resolver
-from .plays import play
+from .plays import category, play
 from .schema import WELL_COLS, canon_uwi
 
 # Map symbols follow the usual well-map conventions: producing oil, producing gas, suspended oil/gas,
@@ -197,9 +197,8 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
     w["co"] = names.map(lambda n: resolved[n].id)
     co_meta = {c.id: c for c in resolved.values()}
     w["licensee"] = w["co"].map(lambda i: co_meta[i].name)
-    w["play"] = [play(f, pv) for f, pv in zip(w["formation"], w["province"])]
-    thermal = w["status"].astype(str).str.upper().str.contains("STEAM|CYCLICAL|SAGD|THERMAL", regex=True)
-    w.loc[w["play"].isna() & thermal, "play"] = "Oil sands (in situ)"
+    tgt = w["target_formation"] if "target_formation" in w else pd.Series(None, index=w.index)
+    w["play"] = [category(f, pv, t, st) for f, pv, t, st in zip(w["formation"], w["province"], tgt, w["status"])]
     ops = (w.groupby("co").agg(wells=("uwi", "size"), producing=("boe", lambda s: int((s > 0).sum())),
                                s=("lat", "min"), n_=("lat", "max"), wst=("lon", "min"), e=("lon", "max"), boe=("boe", "sum"))
              .sort_values("wells", ascending=False).reset_index())
@@ -243,8 +242,8 @@ def build(wells: pd.DataFrame, prod: pd.DataFrame, out: Path, sources: dict, wor
                            for row in arr]
     fields = ["province", "well_name", "licence", "licensee", "status_text", "status_group", "status_date", "fluid",
               "field", "formation", "spud_date", "total_depth_m", "horizontal", "lat", "lon", "loc_precision",
-              "bh_lat", "bh_lon", "sym", "boe", "play"]
-    short = ["p", "n", "li", "lc", "st", "sg", "sd", "fl", "fd", "fm", "sp", "td", "hz", "y", "x", "lp", "by", "bx", "s", "b", "pl"]
+              "bh_lat", "bh_lon", "sym", "boe", "play", "surface_loc"]
+    short = ["p", "n", "li", "lc", "st", "sg", "sd", "fl", "fd", "fm", "sp", "td", "hz", "y", "x", "lp", "by", "bx", "s", "b", "pl", "sl"]
     n_shards = 0
     for key, g in w.dropna(subset=["key"]).groupby("key"):
         recs = {}
@@ -301,7 +300,7 @@ def write_companies(out: Path, w: pd.DataFrame, p: pd.DataFrame, months, mlabels
     play_of = w.set_index("uwi")["play"]
     q = p[["entity_id", "mi", "oil_only", "cond", "gas"]].copy()
     q["co"] = q["entity_id"].map(co_of)
-    q["play"] = q["entity_id"].map(play_of).fillna("Unassigned")
+    q["play"] = q["entity_id"].map(play_of).fillna("Other")
     q["boe"] = q["oil_only"] + q["cond"] + q["gas"] / 6
     q = q.dropna(subset=["co"])
     monthly = q.groupby(["co", "mi"]).agg(oil=("oil_only", "sum"), cond=("cond", "sum"), gas=("gas", "sum"),

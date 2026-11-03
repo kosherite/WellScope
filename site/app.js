@@ -10,7 +10,8 @@ const n = (v, d = 0) => v == null || !isFinite(v) ? "–" : Number(v).toLocaleSt
 const dark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
 
 let HAS_CO = false, META = null, OPS = [], map, selected = null, opFilter = null;
-const hidden = new Set();
+const SHOW_BY_DEFAULT = ["oil", "gas"];
+const hidden = new Set(PREFS.get("hidden", ["oil_susp", "gas_susp", "aband", "dry", "service", "pre", "other"]));
 const cache = new Map();
 const DATA = document.querySelector('meta[name="wellscope-data"]')?.content || "data/";   // "../data/" on /staging/
 const getJSON = (p) => { if (!cache.has(p)) cache.set(p, fetch(DATA + p).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })); return cache.get(p); };
@@ -44,6 +45,7 @@ function drawIcon(kind, px = 48) {
 
 // ------------------------------------------------------------------ basemaps (Esri raster tiles; no API key needed)
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+let base = PREFS.get("base", "topo");
 const BASES = {
   light: () => [ESRI + `Canvas/${dark() ? "World_Dark_Gray_Base" : "World_Light_Gray_Base"}/MapServer/tile/{z}/{y}/{x}`,
                 ESRI + `Canvas/${dark() ? "World_Dark_Gray_Reference" : "World_Light_Gray_Reference"}/MapServer/tile/{z}/{y}/{x}`],
@@ -55,14 +57,13 @@ function baseStyle() {
   Object.entries(BASES).forEach(([k, f]) => {
     const [base, ref] = f();
     sources["b-" + k] = { type: "raster", tiles: [base], tileSize: 256, maxzoom: k === "light" ? 16 : 19, attribution: "Basemap &copy; Esri and its data providers" };
-    layers.push({ id: "b-" + k, type: "raster", source: "b-" + k, layout: { visibility: k === "light" ? "visible" : "none" } });
-    if (ref) { sources["r-" + k] = { type: "raster", tiles: [ref], tileSize: 256, maxzoom: 16 }; layers.push({ id: "r-" + k, type: "raster", source: "r-" + k, layout: { visibility: k === "light" ? "visible" : "none" } }); }
+    layers.push({ id: "b-" + k, type: "raster", source: "b-" + k, layout: { visibility: k === base ? "visible" : "none" } });
+    if (ref) { sources["r-" + k] = { type: "raster", tiles: [ref], tileSize: 256, maxzoom: 16 }; layers.push({ id: "r-" + k, type: "raster", source: "r-" + k, layout: { visibility: k === base ? "visible" : "none" } }); }
   });
   return { version: 8, glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf", sources, layers };
 }
-let base = "light";
 function setBase(k) {
-  base = k;
+  base = k; PREFS.set("base", k);
   Object.keys(BASES).forEach((b) => ["b-", "r-"].forEach((p) => map.getLayer(p + b) && map.setLayoutProperty(p + b, "visibility", b === k ? "visible" : "none")));
   document.querySelectorAll("#basemaps button").forEach((x) => x.classList.toggle("on", x.dataset.b === k));
   if (map.getLayer("grid-lines")) map.setPaintProperty("grid-lines", "line-color", k === "sat" ? "#ffffff" : css("--ink"));
@@ -173,15 +174,31 @@ function addGrid() {
 
 // ------------------------------------------------------------------ well panel
 const panel = () => $("#panel");
-function closePanel() { if (typeof closeCompany === "function") closeCompany(); panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); setHash(); }
+function closePanel() { if (typeof closeCompany === "function") closeCompany(); CURRENT_WELL = null; panel().hidden = true; selected = null; map.setFilter("sel", ["==", ["get", "u"], ""]); setHash(); }
 function showList(props, lngLat) {
   if (CO.current) closeCompany();
   const p = panel(); p.hidden = false;
   p.innerHTML = `<div class="ph"><div><h2 style="font-family:var(--font);font-weight:700">${props.length} wells here</h2><div class="name">Pick one</div></div><button class="x" aria-label="Close">×</button></div>
-    <div class="list">${props.sort((a, b) => b.b - a.b).map((f) => `<button data-u="${esc(f.u)}"><img src="${ICONS[f.s] || ICONS.other}" alt=""><span><span class="mono">${esc(LOC.display(f.u))}</span>${f.b ? `<br><small class="muted">${n(f.b, 1)} boe/d</small>` : ""}</span></button>`).join("")}</div>`;
+    <div class="list">${props.sort((a, b) => b.b - a.b).map((f) => `<button data-u="${esc(f.u)}"><img src="${ICONS[f.s] || ICONS.other}" alt=""><span><span class="mono">${esc(LOC.display(f.u))}</span>${f.b ? `<br><small class="muted">${UNITS.fmt(UNITS.rate("boe", f.b))} ${UNITS.unit("boe")}</small>` : ""}</span></button>`).join("")}</div>`;
   p.querySelector(".x").onclick = closePanel;
   p.querySelectorAll("[data-u]").forEach((b) => b.onclick = () => openWell(b.dataset.u));
 }
+const STATUS = { Producing: "Active", Inactive: "Suspended", Abandoned: "Abandoned", Service: "Injection or disposal",
+  "Pre-production": "Licensed or drilling", Other: "Unknown" };
+const KEEP = new Set(["HZ", "ULC", "LP", "BC", "AB", "SK", "MB", "NE", "NW", "SE", "SW", "CNRL", "ARC", "IPC", "PCP", "CBM", "SAGD", "CSS",
+  "II", "III", "IV", "DD", "NGL", "SS"]);
+// Regulator text arrives in capitals; show it in normal case, keeping abbreviations and legal locations as they are.
+function nice(s) {
+  if (!s) return s;
+  s = String(s).trim();
+  if (s !== s.toUpperCase()) return s;
+  return s.split(/(\s+|-|\/|\()/).map((w) => {
+    if (!/[A-Z]/.test(w) || /\d/.test(w) || KEEP.has(w)) return w;
+    return w.charAt(0) + w.slice(1).toLowerCase();
+  }).join("");
+}
+const locPart = (disp) => { const m = String(disp || "").match(/\/(.+)\//); return m ? m[1] : disp; };
+
 async function openWell(canon, fly = false) {
   const key = LOC.keyOf(canon), p = panel();
   if (CO.current) closeCompany();
@@ -189,7 +206,7 @@ async function openWell(canon, fly = false) {
   let shard = null, w = null;
   try { shard = await getJSON(`twp/${key}.json`); w = shard.wells[canon]; } catch (e) { /* no shard */ }
   if (!w) {
-    p.innerHTML = `<div class="ph"><div><h2>${esc(LOC.display(canon))}</h2><div class="name">Not on the provincial well lists</div></div><button class="x" aria-label="Close">×</button></div>
+    p.innerHTML = `<div class="ph"><div><h2 class="mono-t">${esc(LOC.display(canon))}</h2><div class="name">Not on the provincial well lists</div></div><button class="x" aria-label="Close">×</button></div>
       <p class="muted" style="margin:0">This UWI isn't in the data. Check the event sequence (the last two digits), or search the legal location to see nearby wells.</p>`;
     p.querySelector(".x").onclick = closePanel; return;
   }
@@ -197,31 +214,38 @@ async function openWell(canon, fly = false) {
   map.setFilter("sel", ["==", ["get", "u"], canon]);
   if (fly) map.flyTo({ center: [w.x, w.y], zoom: Math.max(map.getZoom(), 14.5), essential: true,
     padding: innerWidth <= 640 ? { bottom: innerHeight * 0.6 } : { left: 420 } });
-  const sym = w.s || "other", pr = w.pr, months = shard.months;
+  CURRENT_WELL = { w, months: shard.months };
+  renderWell();
+}
+let CURRENT_WELL = null;
+function renderWell() {
+  if (!CURRENT_WELL) return;
+  const { w, months } = CURRENT_WELL, p = panel(), pr = w.pr, sym = w.s || "other";
+  const oil = pr && UNITS.series("liq", pr[0], months), gas = pr && UNITS.series("gas", pr[1], months), wat = pr && UNITS.series("liq", pr[2], months);
   const last3 = (arr) => arr ? arr.slice(-3).reduce((a, b) => a + b, 0) / 3 : 0;
-  const cum = (arr, toUnits) => arr ? arr.reduce((a, v, i) => a + v * daysIn(months[i]), 0) / toUnits : 0;
-  const latLon = `${n(w.y, 5)}, ${n(w.x, 5)}`;
   const share = location.origin + location.pathname + "#well=" + encodeURIComponent(w.d);
-  const prec = { surveyed: "surveyed coordinates", "dls-lsd": "from legal location (±0.5 km)", "dls-section": "section centre (±1 km)", nts: "from NTS location (±0.5 km)" }[w.lp] || "approximate";
+  const co = OPS.find((o) => o.n === w.lc);
+  const fluid = { oil: "oil", oil_susp: "oil", gas: "gas", gas_susp: "gas" }[sym];
+  const status = STATUS[w.sg] || nice(w.st) || "Unknown";
+  const pool = nice(w.fm);
+  const [oilT, oilU] = pr ? UNITS.total("liq", pr[0], months) : [0, ""], [gasT, gasU] = pr ? UNITS.total("gas", pr[1], months) : [0, ""];
   p.innerHTML = `
-    <div class="ph"><div><h2>${esc(w.d)}</h2>${w.n ? `<div class="name">${esc(w.n)}</div>` : ""}</div><button class="x" aria-label="Close">×</button></div>
-    <div><span class="status"><img src="${ICONS[sym]}" alt="">${esc(META.symbols[sym] || "Other")}</span></div>
-    ${pr ? `<div class="rates"><div class="rate"><b>${n(last3(pr[0]), 1)}</b><span>oil bbl/d</span></div><div class="rate"><b>${n(last3(pr[1]), 1)}</b><span>gas mcf/d</span></div><div class="rate"><b>${n(last3(pr[2]), 1)}</b><span>water bbl/d</span></div></div>
+    <div class="ph"><div><h2 class="wname">${esc(nice(w.n) || w.d)}</h2>
+      <div class="uwi"><span class="mono">${esc(w.d)}</span>${w.hz ? `<span class="tag">Horizontal</span>` : ""}</div></div>
+      <button class="x" aria-label="Close">×</button></div>
+    ${pr ? `<div class="rates"><div class="rate"><b>${UNITS.fmt(last3(oil))}</b><span>oil ${UNITS.unit("liq")}</span></div><div class="rate"><b>${UNITS.fmt(last3(gas))}</b><span>gas ${UNITS.unit("gas")}</span></div><div class="rate"><b>${UNITS.fmt(last3(wat))}</b><span>water ${UNITS.unit("liq")}</span></div></div>
       <div class="chart" id="chart"></div>
-      <div class="key"><span><i style="background:var(--oil)"></i>Oil bbl/d</span><span><i style="background:var(--gas)"></i>Gas mcf/d (right axis)</span><span><i style="background:var(--svc)"></i>Water bbl/d</span></div>
-      <p class="src">Last three months average, per calendar day. ${months.length}-month totals: ${n(cum(pr[0], 1))} bbl oil, ${n(cum(pr[1], 1000), 1)} mmcf gas.</p>` : ""}
+      <div class="key"><span><i style="background:var(--oil)"></i>Oil ${UNITS.unit("liq")}</span><span><i style="background:var(--gas)"></i>Gas ${UNITS.unit("gas")} (right axis)</span><span><i style="background:var(--svc)"></i>Water ${UNITS.unit("liq")}</span></div>
+      <p class="src">Last three months average. ${months.length}-month totals: ${n(oilT)} ${oilU} oil, ${n(gasT, 1)} ${gasU} gas.</p>` : ""}
     <dl class="facts">
       <div><dt>Licence${w.p === "BC" ? " (WA)" : ""}</dt><dd>${esc(w.li || "–")}</dd></div>
-      <div><dt>Licensee</dt><dd>${w.lc ? `<button class="link" data-op="${esc(w.lc)}" title="Open company">${esc(w.lc)}${(OPS.find((o) => o.n === w.lc) || {}).t ? ` <span class="ticker sm">${esc(OPS.find((o) => o.n === w.lc).t)}</span>` : ""}</button>` : "–"}</dd></div>
-      <div class="wide"><dt>Status</dt><dd>${esc(w.st || "–")}${w.sd ? ` <span class="muted">· since ${esc(w.sd)}</span>` : ""}</dd></div>
+      <div><dt>Licensee</dt><dd>${w.lc ? `<button class="link" data-op="${esc(w.lc)}" title="Open company">${esc(w.lc)}${co && co.t ? ` <span class="ticker sm">${esc(co.t)}</span>` : ""}</button>` : "–"}</dd></div>
+      <div><dt>${w.p === "BC" ? "Area" : "Field"}</dt><dd>${esc(nice(w.fd) || "–")}</dd></div>
+      <div><dt>Formation</dt><dd>${esc(w.pl || "–")}${pool && pool !== w.pl ? `<br><small class="muted">${esc(pool)}</small>` : ""}</dd></div>
       <div><dt>${w.p === "BC" ? "Rig release" : "Spud date"}</dt><dd>${esc(w.sp || "–")}</dd></div>
       <div><dt>Total depth</dt><dd>${w.td ? n(w.td) + " m" : "–"}</dd></div>
-      <div><dt>${w.p === "BC" ? "Area" : "Field"}</dt><dd>${esc(w.fd || "–")}</dd></div>
-      <div><dt>Pool / formation</dt><dd>${esc(w.fm || "–")}${w.pl && w.pl !== w.fm ? `<br><small class="muted">${esc(w.pl)}</small>` : ""}</dd></div>
-      <div><dt>Well type</dt><dd>${w.hz ? "Horizontal" : "Vertical or directional"}</dd></div>
-      <div><dt>Province</dt><dd>${esc(PROV[w.p] || w.p)}</dd></div>
-      <div class="wide"><dt>Surface location</dt><dd><span class="mono">${latLon}</span> <span class="muted">· ${esc(prec)}</span></dd></div>
-      ${w.by ? `<div class="wide"><dt>Bottom hole</dt><dd><span class="mono">${n(w.by, 5)}, ${n(w.bx, 5)}</span></dd></div>` : ""}
+      <div><dt>${w.sl ? "Surface location" : "Location"}</dt><dd class="mono">${esc(w.sl || locPart(w.d))}</dd></div>
+      <div><dt>Well status</dt><dd><span class="st"><img src="${ICONS[sym] || ICONS.other}" alt="">${esc(status)}${fluid && status === "Active" ? " · " + fluid : ""}</span>${w.sd ? ` <span class="muted">since ${esc(w.sd)}</span>` : ""}</dd></div>
     </dl>
     <div class="actions">
       <a class="btn primary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${w.y},${w.x}">Directions</a>
@@ -234,13 +258,13 @@ async function openWell(canon, fly = false) {
   $("#copyUwi").onclick = () => copy(w.d, "UWI copied");
   $("#shareBtn").onclick = () => copy(share, "Link copied");
   p.querySelectorAll("[data-op]").forEach((b) => b.onclick = () => { const o = OPS.findIndex((x) => x.n === b.dataset.op); if (o >= 0) openCompany(o); });
-  if (pr) productionChart($("#chart"), months, pr);
+  if (pr) productionChart($("#chart"), months, [oil, gas, wat]);
   p.scrollTop = 0;
 }
 function daysIn(m) { const [y, mm] = m.split("-").map(Number); return new Date(y, mm, 0).getDate(); }
 function productionChart(host, months, pr) {
   const W = 360, H = 150, L = 34, R = 36, T = 8, B = 20, k = months.length;
-  const oil = pr[0] || months.map(() => 0), gas = pr[1] || months.map(() => 0), wat = pr[2] || months.map(() => 0);
+  const [oil, gas, wat] = pr;
   const nice = (v) => { if (!(v > 0)) return 1; const p = 10 ** Math.floor(Math.log10(v)), q = v / p; return (q <= 1 ? 1 : q <= 2 ? 2 : q <= 5 ? 5 : 10) * p; };
   const yl = nice(Math.max(...oil, ...wat, 0.1)), yr = nice(Math.max(...gas, 0.1));
   const x = (i) => L + i / Math.max(k - 1, 1) * (W - L - R), y1 = (v) => T + (H - T - B) * (1 - v / yl), y2 = (v) => T + (H - T - B) * (1 - v / yr);
@@ -249,7 +273,7 @@ function productionChart(host, months, pr) {
   months.forEach((m, i) => { if (m.endsWith("-01")) ticks += `<text x="${x(i)}" y="${H - 5}" text-anchor="middle">${m.slice(0, 4)}</text>`; });
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly production">
     ${[0, 0.5, 1].map((f) => `<line class="g" x1="${L}" x2="${W - R}" y1="${T + (H - T - B) * (1 - f)}" y2="${T + (H - T - B) * (1 - f)}"/>
-      <text x="${L - 5}" y="${T + (H - T - B) * (1 - f) + 3}" text-anchor="end">${n(yl * f)}</text><text x="${W - R + 5}" y="${T + (H - T - B) * (1 - f) + 3}">${n(yr * f)}</text>`).join("")}
+      <text x="${L - 5}" y="${T + (H - T - B) * (1 - f) + 3}" text-anchor="end">${UNITS.axis(yl * f)}</text><text x="${W - R + 5}" y="${T + (H - T - B) * (1 - f) + 3}">${UNITS.axis(yr * f)}</text>`).join("")}
     ${line(wat, y1, css("--svc"), "3 3")}${line(gas, y2, css("--gas"))}${line(oil, y1, css("--oil"))}${ticks}
     <g class="hover" style="display:none"><line class="guide" y1="${T}" y2="${H - B}" stroke="${css("--ink")}" stroke-dasharray="2 3"/>
       <circle class="d-oil" r="3" fill="${css("--oil")}"/><circle class="d-gas" r="3" fill="${css("--gas")}"/><circle class="d-wat" r="3" fill="${css("--svc")}"/></g>
@@ -265,7 +289,7 @@ function productionChart(host, months, pr) {
     hov.querySelector(".guide").setAttribute("x1", x(i)); hov.querySelector(".guide").setAttribute("x2", x(i));
     [["d-oil", oil, y1], ["d-gas", gas, y2], ["d-wat", wat, y1]].forEach(([c, a, y]) => { const d = hov.querySelector("." + c); d.setAttribute("cx", x(i)); d.setAttribute("cy", y(a[i])); });
     tip.hidden = false;
-    tip.innerHTML = `<b>${label(months[i])}</b><span><i style="background:var(--oil)"></i>${n(oil[i], 1)} bbl/d oil</span><span><i style="background:var(--gas)"></i>${n(gas[i], 1)} mcf/d gas</span><span><i style="background:var(--svc)"></i>${n(wat[i], 1)} bbl/d water</span>`;
+    tip.innerHTML = `<b>${label(months[i])}</b><span><i style="background:var(--oil)"></i>${UNITS.fmt(oil[i])} ${UNITS.unit("liq")} oil</span><span><i style="background:var(--gas)"></i>${UNITS.fmt(gas[i])} ${UNITS.unit("gas")} gas</span><span><i style="background:var(--svc)"></i>${UNITS.fmt(wat[i])} ${UNITS.unit("liq")} water</span>`;
     const left = (x(i) / W) * r.width;
     tip.style.left = Math.max(0, Math.min(r.width - tip.offsetWidth, left - tip.offsetWidth / 2)) + "px";
   };
@@ -354,14 +378,30 @@ function initLayers() {
   const btn = $("#layersBtn"), box = $("#layers");
   btn.onclick = () => { box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden)); };
   document.querySelectorAll("#basemaps button").forEach((b) => b.onclick = () => setBase(b.dataset.b));
-  $("#gridT").onchange = updateGrid;
-  $("#latT").onchange = (e) => map.setLayoutProperty("laterals", "visibility", e.target.checked ? "visible" : "none");
+  document.querySelectorAll("#basemaps button").forEach((x) => x.classList.toggle("on", x.dataset.b === base));
+  $("#gridT").checked = PREFS.get("grid", true); $("#latT").checked = PREFS.get("laterals", true);
+  $("#gridT").onchange = (e) => { PREFS.set("grid", e.target.checked); updateGrid(); };
+  const lat = (on) => map.setLayoutProperty("laterals", "visibility", on ? "visible" : "none");
+  lat($("#latT").checked);
+  $("#latT").onchange = (e) => { PREFS.set("laterals", e.target.checked); lat(e.target.checked); };
+  const seg = (id, key, dflt) => document.querySelectorAll(`#${id} button`).forEach((b) => {
+    b.classList.toggle("on", b.dataset.v === PREFS.get(key, dflt));
+    b.onclick = () => { PREFS.set(key, b.dataset.v); document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle("on", x === b)); unitsChanged(); };
+  });
+  seg("unitSys", "units", "metric"); seg("unitPer", "per", "day");
   $("#actT").onchange = (e) => setActivity(e.target.checked);
   const counts = META.counts.by_symbol || {};
   $("#wellCount").textContent = n(META.counts.wells) + " total";
-  $("#legend").innerHTML = SYM.filter((s) => counts[s]).map((s) => `<label><input type="checkbox" data-s="${s}" checked><img src="${ICONS[s]}" alt=""><span>${esc(META.symbols[s])}</span><small>${n(counts[s])}</small></label>`).join("");
-  $("#legend").querySelectorAll("input").forEach((c) => c.onchange = () => { c.checked ? hidden.delete(c.dataset.s) : hidden.add(c.dataset.s); applyFilters(); });
+  $("#legend").innerHTML = SYM.filter((s) => counts[s]).map((s) => `<label><input type="checkbox" data-s="${s}" ${hidden.has(s) ? "" : "checked"}><img src="${ICONS[s]}" alt=""><span>${esc(META.symbols[s])}</span><small>${n(counts[s])}</small></label>`).join("");
+  $("#legend").querySelectorAll("input").forEach((c) => c.onchange = () => { c.checked ? hidden.delete(c.dataset.s) : hidden.add(c.dataset.s); PREFS.set("hidden", [...hidden]); applyFilters(); });
+  $("#legendReset").onclick = () => { hidden.clear(); SYM.forEach((s) => { if (!SHOW_BY_DEFAULT.includes(s)) hidden.add(s); }); PREFS.set("hidden", [...hidden]);
+    $("#legend").querySelectorAll("input").forEach((c) => (c.checked = !hidden.has(c.dataset.s))); applyFilters(); };
+  $("#legendAll").onclick = () => { hidden.clear(); PREFS.set("hidden", []); $("#legend").querySelectorAll("input").forEach((c) => (c.checked = true)); applyFilters(); };
   $("#aboutBtn").onclick = about;
+}
+function unitsChanged() {
+  if (CURRENT_WELL && !panel().hidden) renderWell();
+  if (typeof CO !== "undefined" && CO.current) renderCompany();
 }
 function about() {
   const m = META, c = m.counts, modal = $("#about");
@@ -370,7 +410,7 @@ function about() {
     <p>A free map of every oil and gas well in Alberta, Saskatchewan, British Columbia and Manitoba, rebuilt every month from the regulators' public files. No account needed.</p>
     <ul>${Object.entries(c.by_province || {}).map(([p, v]) => `<li><b>${PROV[p]}</b>: ${n(v)} wells. ${esc(SOURCE[p])}. Data through ${esc(m.latest?.[p] || "")}.</li>`).join("")}</ul>
     <p>${n(c.producing)} wells reported production in the last three months. ${n(c.laterals)} horizontal laterals are drawn from published bottom-hole coordinates (Alberta).</p>
-    <p class="muted">Search accepts a UWI in any common format, a licence or well authorization number, a legal location (06-06-001-01W4, 060-12W5), a company name or a ticker. Open a company to see its production, the formations behind it and its drilling activity. Wells without published coordinates are placed from their legal location, so they can be a few hundred metres off. Production is gross, per calendar day. Check each regulator's terms before reusing the data commercially.</p>
+    <p class="muted">Search accepts a UWI in any common format, a licence or well authorization number, a legal location (06-06-001-01W4, 060-12W5), a company name or a ticker. Open a company to see its production, the formations behind it and its drilling activity. Wells without published coordinates are placed from their legal location, so they can be a few hundred metres off. Production is gross. Switch between metric (m³, e³m³) and imperial (bbl, mcf), per day or per month, in Layers; oil equivalent uses 6 mcf of gas per barrel. Check each regulator's terms before reusing the data commercially.</p>
     <p class="muted">Generated ${esc(m.generated)} · <a href="https://github.com/kosherite/wellscope" target="_blank" rel="noopener">Source code</a></p>`;
   const close = () => (modal.hidden = true);
   modal.querySelector(".x").onclick = close;
@@ -412,7 +452,7 @@ function readHash() {
   map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), "bottom-right");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.on("load", () => {
-    addWellLayers(); addGrid(); initLayers(); initSearch();
+    addWellLayers(); addGrid(); initLayers(); initSearch(); applyFilters();
     readHash();
     map.on("moveend", () => { if (!selected && !opFilter && !CO.current) setHash(); });
   });
