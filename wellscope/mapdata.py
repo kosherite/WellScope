@@ -298,6 +298,10 @@ def write_companies(out: Path, w: pd.DataFrame, p: pd.DataFrame, months, mlabels
     T = len(months)
     co_of = w.set_index("uwi")["co"]
     play_of = w.set_index("uwi")["play"]
+    # each company's series ends at the last month every province it produces in has reported, so a province that
+    # publishes a few days later (often Manitoba) can't show up as a false drop in the latest month
+    prov_last = p.groupby("province")["mi"].max().to_dict()
+    co_provs = p.assign(co=p["entity_id"].map(co_of)).dropna(subset=["co"]).groupby("co")["province"].unique()
     q = p[["entity_id", "mi", "oil_only", "cond", "gas"]].copy()
     q["co"] = q["entity_id"].map(co_of)
     q["play"] = q["entity_id"].map(play_of).fillna("Other")
@@ -307,9 +311,6 @@ def write_companies(out: Path, w: pd.DataFrame, p: pd.DataFrame, months, mlabels
                                           wells=("boe", lambda s: int((s > 0).sum())))
     by_play = q.groupby(["co", "play", "mi"]).agg(boe=("boe", "sum"), oil=("oil_only", "sum"), cond=("cond", "sum"),
                                                   wells=("boe", lambda s: int((s > 0).sum())))
-    last = T - 1
-    win = lambda lo, hi: [i for i in range(T) if last - hi <= i <= last - lo]  # noqa: E731
-    now, prev_q, year_ago = win(0, 2), win(3, 5), win(12, 14)
     status = w.groupby(["co", "status_group"]).size()
     prov = w.groupby(["co", "province"]).size()
     if ev is not None and len(ev):
@@ -324,12 +325,17 @@ def write_companies(out: Path, w: pd.DataFrame, p: pd.DataFrame, months, mlabels
              "status": {k: int(v) for k, v in status.get(cid, pd.Series(dtype=int)).items()},
              "provinces": {k: int(v) for k, v in prov.get(cid, pd.Series(dtype=int)).items()}, "months": mlabels}
         if cid in monthly.index.get_level_values(0):
-            m = monthly.loc[cid].reindex(range(T), fill_value=0)
+            Tc = min(prov_last.get(pv, T - 1) for pv in co_provs.get(cid, [])) + 1 if cid in co_provs.index else T
+            last = Tc - 1
+            win = lambda lo, hi: [i for i in range(Tc) if last - hi <= i <= last - lo]  # noqa: E731
+            now, prev_q, year_ago = win(0, 2), win(3, 5), win(12, 14)
+            d["months"] = mlabels[:Tc]
+            m = monthly.loc[cid].reindex(range(Tc), fill_value=0)
             d["prod"] = {"oil": _round(m["oil"]), "cond": _round(m["cond"]), "gas": _round(m["gas"]), "wells": [int(x) for x in m["wells"]]}
             rows = []
             bp = by_play.loc[cid]
             for pl in bp.index.get_level_values(0).unique():
-                s_ = bp.loc[pl].reindex(range(T), fill_value=0)
+                s_ = bp.loc[pl].reindex(range(Tc), fill_value=0)
                 avg = lambda idx, col="boe": float(s_.loc[idx, col].mean()) if idx else 0.0  # noqa: E731
                 cur = avg(now)
                 if cur <= 0 and avg(prev_q) <= 0:
